@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { ProviderConfigurationService } from '../../application/provider/providerConfigurationService';
 import { ProviderFactory } from '../../application/provider/providerCatalog';
 import { SessionService } from '../../application/session/sessionService';
-import { CredentialSource, ProviderConfiguration, ProviderConfigurationInput, ProviderKind } from '../../domain/providerConfiguration';
+import { CredentialSource, ProviderConfiguration, ProviderConfigurationInput, ProviderKind, createProviderConfiguration } from '../../domain/providerConfiguration';
 import { SessionModelSelection } from '../../domain/session';
 
 const DISCOVERY_TIMEOUT_MS = 15_000;
@@ -90,6 +90,14 @@ export class ProviderSetupWizard {
     return picked.selection;
   }
 
+  async applyWorkspaceDefaultToActiveSession(): Promise<void> {
+    const active = this.sessions.getActiveSession();
+    const resolved = this.configurations.resolveSelection(active.model);
+    if (resolved && (resolved.providerId !== active.model.providerId || resolved.modelId !== active.model.modelId)) {
+      await this.sessions.setModelSelection(resolved);
+    }
+  }
+
   private async select(selection: SessionModelSelection, workspaceDefault: boolean): Promise<void> {
     await this.sessions.setModelSelection(selection);
     if (workspaceDefault) await this.configurations.setWorkspaceDefault(selection);
@@ -125,7 +133,7 @@ export class ProviderSetupWizard {
 
   private async discoverOrEnterModels(input: ProviderConfigurationInput, apiKey?: string): Promise<string[] | undefined> {
     try {
-      const temporary: ProviderConfiguration = { ...input, id: 'provider-discovery', createdAt: 0, updatedAt: 0 };
+      const temporary = createProviderConfiguration('provider-discovery', 0, input);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), DISCOVERY_TIMEOUT_MS);
       try {

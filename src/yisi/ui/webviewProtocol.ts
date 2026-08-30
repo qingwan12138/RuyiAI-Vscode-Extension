@@ -12,6 +12,15 @@ export type WebviewMessage =
   | { type: 'renameSession'; sessionId: string; title: string }
   | { type: 'deleteSession'; sessionId: string; confirmed: true };
 
+export type HostMessage =
+  | { type: 'sessionState'; sessions: unknown[]; activeSession: unknown }
+  | { type: 'assistantStreamStarted' }
+  | { type: 'assistantStreamDelta'; text: string }
+  | { type: 'assistantStreamCompleted' }
+  | { type: 'runStopped' }
+  | { type: 'continueRequested' }
+  | { type: 'sessionError'; message: string };
+
 export class WebviewProtocolError extends Error {
   constructor() {
     super('Invalid Webview message.');

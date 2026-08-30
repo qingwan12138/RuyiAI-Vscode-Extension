@@ -3,18 +3,24 @@ import { createChatViewHtml } from './chatViewHtml';
 import { SessionService } from '../application/session/sessionService';
 import { WebviewMessage, parseWebviewMessage } from './webviewProtocol';
 import { ProviderSetupWizard } from '../vscode/provider/providerSetupWizard';
-
-const BASELINE_ASSISTANT_NOTICE = 'Message saved. A model provider is not connected yet, so Yisi AI has not generated a response.';
+import { ChatService } from '../application/chat/chatService';
+import { ChatRunCoordinator } from './chatRunCoordinator';
 
 export class YisiChatViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private disposables: vscode.Disposable[] = [];
+  private readonly runs: ChatRunCoordinator;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly sessions: SessionService,
-    private readonly providerSetup: ProviderSetupWizard
-  ) {}
+    private readonly providerSetup: ProviderSetupWizard,
+    chat: ChatService
+  ) {
+    this.runs = new ChatRunCoordinator(chat, event => {
+      void this.view?.webview.postMessage(event);
+    });
+  }
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
@@ -42,7 +48,9 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   async newSession(): Promise<void> {
+    if (!this.requireIdle()) return;
     await this.sessions.createSession();
+    await this.providerSetup.applyWorkspaceDefaultToActiveSession();
     await this.publishState();
   }
 
@@ -52,7 +60,9 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   stopCurrentRun(): void {
-    void this.view?.webview.postMessage({ type: 'runStopped' });
+    if (!this.runs.stop()) {
+      void this.view?.webview.postMessage({ type: 'runStopped' });
+    }
   }
 
   continueCurrentSession(): void {
@@ -70,6 +80,7 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
         return;
 
       case 'switchSession':
+        if (!this.requireIdle()) return;
         await this.sessions.switchSession(message.sessionId);
         await this.publishState();
         return;
@@ -80,6 +91,7 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
         return;
 
       case 'deleteSession':
+        if (!this.requireIdle()) return;
         await this.sessions.deleteSession(message.sessionId);
         await this.publishState();
         return;
@@ -89,6 +101,7 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
         return;
 
       case 'selectModel':
+        if (!this.requireIdle()) return;
         await this.providerSetup.pickModelForSession();
         await this.publishState();
         return;
@@ -106,9 +119,7 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
         return;
 
       case 'sendMessage': {
-        await this.sessions.appendUserMessage(message.text);
-        await this.sessions.appendAssistantMessage(BASELINE_ASSISTANT_NOTICE, 'baseline');
-        await this.publishState();
+        void this.runChat(message.text);
         return;
       }
 
@@ -120,6 +131,20 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
         this.continueCurrentSession();
         return;
     }
+  }
+
+  private async runChat(text: string): Promise<void> {
+    await this.runs.start(text);
+    await this.publishState();
+  }
+
+  private requireIdle(): boolean {
+    if (!this.runs.isRunning()) return true;
+    void this.view?.webview.postMessage({
+      type: 'sessionError',
+      message: 'Stop the current run before changing sessions or models.'
+    });
+    return false;
   }
 
   private async receiveMessage(value: unknown): Promise<void> {

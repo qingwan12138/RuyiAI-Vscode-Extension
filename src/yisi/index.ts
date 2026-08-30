@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
 import { randomUUID } from 'node:crypto';
 import { ProviderConfigurationService } from './application/provider/providerConfigurationService';
+import { ChatService } from './application/chat/chatService';
 import { LegacySessionMetadata, SessionService } from './application/session/sessionService';
-import { ProviderFactory } from './application/provider/providerCatalog';
+import { ProviderCatalog, ProviderFactory } from './application/provider/providerCatalog';
 import { OpenAICompatibleProvider } from './infrastructure/llm/openAICompatibleProvider';
 import { JsonSessionRepository } from './infrastructure/persistence/jsonSessionRepository';
 import { YisiChatViewProvider } from './ui/chatViewProvider';
@@ -40,7 +41,10 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
     providerFactory,
     process.env
   );
-  const chatView = new YisiChatViewProvider(context.extensionUri, sessions, providerSetup);
+  await providerSetup.applyWorkspaceDefaultToActiveSession();
+  const providerCatalog = new ProviderCatalog(providerConfigurations, secrets, process.env, providerFactory);
+  const chat = new ChatService(sessions, providerCatalog);
+  const chatView = new YisiChatViewProvider(context.extensionUri, sessions, providerSetup, chat);
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('yisiAI.chat', chatView),

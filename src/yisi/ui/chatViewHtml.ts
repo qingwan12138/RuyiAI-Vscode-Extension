@@ -255,6 +255,23 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       background: var(--yisi-surface);
     }
 
+    .message.assistant {
+      margin-right: 12px;
+      border: 1px solid var(--yisi-border);
+      background: var(--yisi-surface);
+    }
+
+    .message.streaming::after {
+      content: '▋';
+      margin-left: 2px;
+      color: var(--vscode-progressBar-background);
+      animation: yisi-cursor 1s steps(1) infinite;
+    }
+
+    @keyframes yisi-cursor {
+      50% { opacity: 0; }
+    }
+
     .history-panel {
       flex: 1;
       min-height: 0;
@@ -542,11 +559,20 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     const sessionTitle = document.getElementById('sessionTitle');
     const historyPanel = document.getElementById('historyPanel');
     const historyList = document.getElementById('historyList');
+    const modelButton = document.getElementById('modelButton');
+    const modelLabel = modelButton.querySelector('.control-label');
     let sessionSummaries = [];
     let activeSession;
+    let isRunning = false;
+    let transientAssistant;
+    let streamedText = '';
 
     function updateSendState() {
-      sendButton.disabled = input.value.trim().length === 0;
+      sendButton.disabled = !isRunning && input.value.trim().length === 0;
+      sendButton.textContent = isRunning ? '■' : '↑';
+      sendButton.setAttribute('aria-label', isRunning ? 'Stop' : 'Send');
+      sendButton.title = isRunning ? 'Stop current run' : 'Send message';
+      input.disabled = isRunning;
     }
 
     function resizeInput() {
@@ -621,13 +647,18 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     function renderActiveSession() {
       if (!activeSession) return;
       sessionTitle.textContent = activeSession.title || 'New Chat';
+      modelLabel.textContent = activeSession.model && activeSession.model.modelId
+        ? activeSession.model.modelId
+        : 'Model';
       conversation.replaceChildren();
+      transientAssistant = undefined;
+      streamedText = '';
 
       activeSession.items.forEach(item => {
-        const node = document.createElement('div');
-        node.className = 'message ' + (item.type === 'userMessage' ? 'user' : 'system');
-        node.textContent = item.text;
-        conversation.appendChild(node);
+        appendMessage(
+          item.text,
+          item.type === 'userMessage' ? 'user' : (item.source === 'provider' ? 'assistant' : 'system')
+        );
       });
 
       showHistory(false);
@@ -635,16 +666,34 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       content.scrollTop = content.scrollHeight;
     }
 
+    function appendMessage(text, role, streaming) {
+      const node = document.createElement('div');
+      node.className = 'message ' + role + (streaming ? ' streaming' : '');
+      node.textContent = text;
+      conversation.appendChild(node);
+      welcome.style.display = 'none';
+      conversation.classList.add('visible');
+      const content = document.getElementById('content');
+      content.scrollTop = content.scrollHeight;
+      return node;
+    }
+
     function submit() {
+      if (isRunning) {
+        vscode.postMessage({ type: 'stop' });
+        status.textContent = 'Stopping…';
+        return;
+      }
       const text = input.value.trim();
       if (!text) return;
 
+      appendMessage(text, 'user', false);
       vscode.postMessage({ type: 'sendMessage', text });
 
       input.value = '';
       resizeInput();
       updateSendState();
-      status.textContent = 'Saving message…';
+      status.textContent = 'Starting…';
     }
 
     input.addEventListener('input', () => {
@@ -671,7 +720,7 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
 
     document.getElementById('closeHistory').addEventListener('click', () => showHistory(false));
 
-    document.getElementById('modelButton').addEventListener('click', () => {
+    modelButton.addEventListener('click', () => {
       vscode.postMessage({ type: 'selectModel' });
     });
 
@@ -701,15 +750,46 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
         renderActiveSession();
         renderHistory();
         status.textContent = '';
+        isRunning = activeSession && activeSession.status === 'running';
+        updateSendState();
         input.focus();
       }
 
+      if (message.type === 'assistantStreamStarted') {
+        isRunning = true;
+        streamedText = '';
+        transientAssistant = appendMessage('Thinking…', 'assistant', true);
+        status.textContent = 'Generating…';
+        updateSendState();
+      }
+
+      if (message.type === 'assistantStreamDelta' && transientAssistant) {
+        streamedText += typeof message.text === 'string' ? message.text : '';
+        transientAssistant.textContent = streamedText;
+        const content = document.getElementById('content');
+        content.scrollTop = content.scrollHeight;
+      }
+
+      if (message.type === 'assistantStreamCompleted') {
+        isRunning = false;
+        if (transientAssistant) transientAssistant.classList.remove('streaming');
+        status.textContent = '';
+        updateSendState();
+      }
+
       if (message.type === 'sessionError') {
+        isRunning = false;
+        if (transientAssistant) transientAssistant.classList.remove('streaming');
         status.textContent = message.message || 'Session action failed.';
+        updateSendState();
       }
 
       if (message.type === 'runStopped') {
+        isRunning = false;
+        if (transientAssistant) transientAssistant.remove();
+        transientAssistant = undefined;
         status.textContent = 'Stopped';
+        updateSendState();
       }
 
       if (message.type === 'continueRequested') {
