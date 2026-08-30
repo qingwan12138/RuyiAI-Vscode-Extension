@@ -25,17 +25,23 @@ This is still not the final visual design, but it is now an executable UI baseli
 - draft user-message rendering
 - extension-host message round trip
 - versioned local Session persistence under VS Code global storage
-- persisted user and baseline assistant messages
+- persisted user messages and completed provider responses
 - active Session restoration after Webview/extension restart
 - Session history list and switching
 - manual Session rename
 - confirmed Session deletion with blank-session fallback
 - runtime validation for all Webview-to-host messages
+- OpenAI and custom OpenAI-compatible provider setup wizard
+- API-key SecretStorage, environment-variable, and credential-free local modes
+- provider model discovery with timeout and explicit manual fallback
+- per-session model selection and workspace default
+- streamed assistant response rendering through `textContent`
+- Send/Stop run-state control with AbortSignal propagation
+- partial provider output discarded on failure or Stop
+- session/model switching blocked while a provider run is active
 
 ## Deliberately not implemented yet
 
-- real LLM request
-- model picker popup
 - real permission selector
 - @file/@folder/@symbol picker
 - Agent tool cards
@@ -44,9 +50,9 @@ This is still not the final visual design, but it is now an executable UI baseli
 - terminal UI
 - Ruyi environment cards
 
-These must be added according to the architecture milestones instead of faked in the UI layer.
+These must be added according to the architecture milestones instead of faked in the UI layer. The current provider path is real chat transport, but it is not yet an Agent loop and cannot read files, run commands, or edit a workspace.
 
-The persisted baseline assistant notice is explicitly labelled as a non-provider response. It verifies the durable UI/host pipeline without pretending that an LLM or Agent run succeeded.
+Automated transport verification uses a local fake OpenAI-compatible HTTP/SSE server. A real user cloud credential was not used during repository verification.
 
 ## Visual principle
 

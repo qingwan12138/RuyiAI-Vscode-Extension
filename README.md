@@ -17,7 +17,7 @@ Yisi AI 是面向 RuyiSDK / RISC-V 开发场景的 VS Code Coding Agent。最终
 
 当前 Webview 已经不是工程占位页。F5 后打开 Yisi AI，会直接看到 Ruyi 品牌欢迎页、快捷任务和底部 Composer。
 
-当前 Session 元数据、用户消息和明确标注的 baseline assistant notice 会持久化到 VS Code 全局扩展存储。历史面板支持切换、重命名和确认删除，重启 Webview/扩展后会恢复当前 Session。真实 LLM 与 Agent Runtime 仍未连接，界面不会伪造模型成功结果。
+当前 Session 元数据、用户消息和已完成的 Provider 回复会持久化到 VS Code 全局扩展存储。历史面板支持切换、重命名和确认删除，重启 Webview/扩展后会恢复当前 Session。Composer 已接通 OpenAI 与 OpenAI-compatible Chat Completions 流式接口；Agent Runtime 与工具调用仍未连接，界面不会伪造 Agent 成功结果。
 
 ## UI 品牌方向
 
@@ -89,7 +89,16 @@ Remote-SSH 不作为当前 v1.0 必须交付能力，后续需要时再单独增
 
 ## 当前阶段
 
-本包仍处于 v0.1 Foundation 开发阶段，不声称已完成 Agent。Session 持久化与历史管理切片已经落地；Provider 设置、SecretStorage、真实流式聊天和 fake-provider 端到端测试仍需按 `docs/12_ROADMAP_AND_DOD.md` 继续实现与验收。
+本包已完成 v0.1 Foundation / Chat Vertical Slice 的代码基线，但不声称已完成 Coding Agent。现已具备 Session 持久化、Provider 设置、SecretStorage/环境变量凭据、模型发现与选择、OpenAI-compatible SSE 流式聊天和 Stop 取消。下一阶段按 `docs/12_ROADMAP_AND_DOD.md` 开发 v0.2 的上下文工具、Permission Engine、ProcessRunner、Diagnostics 与首个受控编辑闭环。
+
+## 配置并运行聊天
+
+1. 在 Yisi AI Composer 底部点击 `Model`。
+2. 首次使用选择 `Add Provider`，可配置官方 OpenAI 或自定义 OpenAI-compatible 地址。
+3. API Key 可存入 VS Code SecretStorage，或只填写环境变量名；可信的本地兼容端点可选择无凭据。
+4. 选择模型后发送消息；生成期间发送按钮变为 Stop。
+
+Provider 普通元数据与密钥分开保存。自定义本地端点允许 HTTP；官方 OpenAI 配置强制 HTTPS。当前自动化测试使用本地 fake HTTP/SSE 服务，不代表已使用用户的真实云账号完成联网验收。
 
 ## v0.5 Runnable Baseline 使用方式
 
@@ -99,4 +108,4 @@ npm run check
 npm run compile
 ```
 
-然后在 VS Code 中按 `F5`，启动 `Run Yisi AI Extension`。当前 starter 只验证 Extension manifest、Webview、命令桥和基础 Session 创建链路，不代表 Agent 能力已经完成。详细见 `docs/17_RUNNABLE_BASELINE.md`。
+然后在 VS Code 中按 `F5`，启动 `Run Yisi AI Extension`。当前 starter 验证 Extension manifest、Webview、Session、Provider 配置和流式聊天链路；工具执行与自主 Agent 循环尚未实现。详细见 `docs/17_RUNNABLE_BASELINE.md`。

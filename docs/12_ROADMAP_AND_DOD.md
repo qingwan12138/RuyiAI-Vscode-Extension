@@ -8,6 +8,8 @@
 - streaming chat + model/session persistence
 DoD：重启 VS Code 会话可恢复；secret 不落普通存储；fake provider 测试通过。
 
+当前实现状态（2026-08-30）：代码基线已覆盖以上条目。自动化测试覆盖 Session 恢复、SecretStorage 与普通状态隔离、Provider 配置、模型发现、SSE 分片、失败/取消、最终回复持久化和 Webview 运行状态；真实云账号联网与人工 Extension Development Host 视觉验收仍作为环境相关验收记录，不扩张为已完成 Agent 能力。
+
 ## v0.2 Coding Agent MVP
 - Read/List/Search/Selection/@file/@folder scope/@symbol
 - Agent loop + tool schema + PermissionEngine Plan/Manual
