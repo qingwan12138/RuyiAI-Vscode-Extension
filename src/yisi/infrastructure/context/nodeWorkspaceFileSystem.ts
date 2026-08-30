@@ -10,6 +10,7 @@ import {
   WorkspaceSearchMatch,
   WorkspaceSearchResult
 } from '../../context/workspaceContext';
+import { isImplicitlySensitivePath } from '../../context/implicitSensitivePath';
 
 const DEFAULT_LIMITS: WorkspaceContextLimits = {
   maxReadBytes: 1024 * 1024,
@@ -244,17 +245,7 @@ function compareNames(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function isImplicitlySkippedFile(name: string): boolean {
-  const lower = name.toLowerCase();
-  return lower === '.gitignore'
-    || lower === '.env'
-    || lower.startsWith('.env.')
-    || lower === '.npmrc'
-    || lower === '.pypirc'
-    || lower === '.netrc'
-    || lower.endsWith('.pem')
-    || lower.endsWith('.key');
-}
+const isImplicitlySkippedFile = isImplicitlySensitivePath;
 
 function validateLimits(limits: WorkspaceContextLimits): WorkspaceContextLimits {
   for (const value of Object.values(limits)) {

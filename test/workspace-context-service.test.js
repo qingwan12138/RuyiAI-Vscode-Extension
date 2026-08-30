@@ -79,3 +79,17 @@ test('uses the workspace root as the default search scope and preserves bounded 
   assert.deepEqual(result, { matches: [], scannedFiles: 1, truncated: false });
   assert.deepEqual(calls[0], ['search', 'needle', '.', signal]);
 });
+
+test('agent read tool rejects implicit credential files without changing explicit service reads', async () => {
+  const { calls, service, tools } = harness();
+  const signal = new AbortController().signal;
+  const execution = { sessionId: 's1', workspaceUri: 'file:///workspace', signal };
+
+  for (const path of ['.env', 'config/.env.local', '.npmrc', 'keys/private.pem', 'keys/id.key']) {
+    await assert.rejects(tools[0].execute({ path }, execution), /credential-sensitive/i);
+  }
+  await service.readFile({ path: '.env' }, signal);
+  await tools[0].execute({ path: 'src/main.ts' }, execution);
+
+  assert.deepEqual(calls.map(call => call[1]), ['.env', 'src/main.ts']);
+});

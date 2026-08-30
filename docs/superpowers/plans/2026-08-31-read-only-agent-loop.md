@@ -65,12 +65,12 @@
 - `ReadOnlyAgentLoop.run(request, context, mode, onDelta, signal): Promise<AgentLoopResult>`.
 - Defaults: 8 provider rounds, 16 calls/round, 65,536 serialized result characters, 240 error characters.
 
-- [ ] **Step 1: Write failing tests** for read→result→final flow, multiple sequential calls, unknown tool, permission deny/confirm, inconsistent metadata, invalid input, bounded error/result, cancellation, duplicate consecutive call, empty output, and round budget.
-- [ ] **Step 2: Run RED:** compile and focused test; expect missing loop module.
-- [ ] **Step 3: Implement the registry** with exact ids and cloned public definitions.
-- [ ] **Step 4: Implement the loop**: stream one round, buffer text, reject ambiguous mixed output, permission-check every call, execute sequentially with the caller signal, append structural assistant/tool messages, and enforce guards.
-- [ ] **Step 5: Run GREEN:** focused/full tests, typecheck, and diff check.
-- [ ] **Step 6: Commit:** `feat: execute bounded read-only agent loop`.
+- [x] **Step 1: Write failing tests** for read→result→final flow, multiple sequential calls, unknown tool, permission deny/confirm, inconsistent metadata, invalid input, bounded error/result, cancellation, duplicate consecutive call, empty output, and round budget.
+- [x] **Step 2: Run RED:** compile and focused test; expect missing loop module.
+- [x] **Step 3: Implement the registry** with exact ids and cloned public definitions.
+- [x] **Step 4: Implement the loop**: stream one round, buffer text, reject ambiguous mixed output, permission-check every call, execute sequentially with the caller signal, append structural assistant/tool messages, and enforce guards.
+- [x] **Step 5: Run GREEN:** focused/full tests, typecheck, and diff check.
+- [x] **Step 6: Commit:** `feat: execute bounded read-only agent loop`.
 
 ### Task 4: Documentation and integration
 

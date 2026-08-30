@@ -1,5 +1,6 @@
 import { FileSystemPort, WorkspaceDirectoryEntry, WorkspaceFileContent, WorkspaceSearchResult } from '../../context/workspaceContext';
 import { YisiTool } from '../../domain/tool';
+import { isImplicitlySensitivePath } from '../../context/implicitSensitivePath';
 
 export interface ReadFileInput { path: string }
 export interface ListDirectoryInput { path: string }
@@ -39,7 +40,7 @@ export function createWorkspaceContextTools(service: WorkspaceContextService): Y
       mutatesWorkspace: false,
       supportsCancellation: true,
       inputSchema: objectSchema({ path: stringSchema('Workspace-relative file path') }, ['path']),
-      execute: async (input, context) => service.readFile(parsePathInput(input), context.signal)
+      execute: async (input, context) => service.readFile(parseAgentReadInput(input), context.signal)
     },
     {
       id: 'list_directory',
@@ -68,6 +69,14 @@ export function createWorkspaceContextTools(service: WorkspaceContextService): Y
 function parsePathInput(value: unknown): ReadFileInput {
   if (!isRecord(value) || !hasExactKeys(value, ['path']) || typeof value.path !== 'string') throw new WorkspaceContextInputError();
   return { path: normalizePath(value.path) };
+}
+
+function parseAgentReadInput(value: unknown): ReadFileInput {
+  const input = parsePathInput(value);
+  if (isImplicitlySensitivePath(input.path)) {
+    throw new WorkspaceContextInputError('Implicit Agent reads of credential-sensitive files are blocked.');
+  }
+  return input;
 }
 
 function parseSearchInput(value: unknown): SearchTextInput {
