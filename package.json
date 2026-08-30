@@ -1,0 +1,84 @@
+{
+  "name": "yisi-ai-dev-starter",
+  "displayName": "Yisi AI Development Baseline",
+  "description": "Closed-source TS/JS VS Code Coding Agent development baseline for RuyiSDK integration.",
+  "version": "0.1.7",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "yisiAI.newChat",
+        "title": "Yisi AI: New Chat"
+      },
+      {
+        "command": "yisiAI.openSettings",
+        "title": "Yisi AI: Model Settings"
+      },
+      {
+        "command": "yisiAI.stop",
+        "title": "Yisi AI: Stop Current Run"
+      },
+      {
+        "command": "yisiAI.continue",
+        "title": "Yisi AI: Continue Current Session"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "yisiAI",
+          "title": "Yisi AI",
+          "icon": "media/yisi.svg"
+        }
+      ]
+    },
+    "views": {
+      "yisiAI": [
+        {
+          "type": "webview",
+          "id": "yisiAI.chat",
+          "name": " ",
+          "icon": "media/yisi.svg"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Yisi AI",
+      "properties": {
+        "yisiAI.defaultProvider": {
+          "type": "string",
+          "default": "",
+          "scope": "window",
+          "description": "Global/project model-provider fallback. API keys are never stored in normal settings."
+        },
+        "yisiAI.defaultModel": {
+          "type": "string",
+          "default": "",
+          "scope": "window",
+          "description": "Global/project model fallback. Each persisted session may keep its own model selection."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "compile": "tsc -p ./",
+    "check": "tsc -p ./ --noEmit",
+    "watch": "tsc -w -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.95.0",
+    "typescript": "^5.7.0"
+  },
+  "icon": "media/ruyi-logo.png"
+}

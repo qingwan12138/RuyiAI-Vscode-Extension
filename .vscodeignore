@@ -1,0 +1,11 @@
+.vscode/**
+docs/**
+.gitignore
+BLUEPRINT_CHANGELOG.md
+AGENTS.md
+UPSTREAM_COMPATIBILITY.md
+src/**
+tsconfig.json
+**/*.map
+**/*.ts
+node_modules/.cache/**

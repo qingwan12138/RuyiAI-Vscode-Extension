@@ -1,0 +1,3 @@
+# Deprecated
+
+请使用 `15_IMPLEMENTATION_CHECKLIST.md` 与 `12_ROADMAP_AND_DOD.md`。

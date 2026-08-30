@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Yisi AI</title>
+  <link rel="stylesheet" href="./welcome.css" />
+</head>
+<body>
+  <main class="shell">
+    <header class="session-header">
+      <span>Untitled</span>
+      <div class="header-actions" aria-label="Session actions"></div>
+    </header>
+
+    <section class="empty-state" aria-label="Yisi AI welcome">
+      <h1>Yisi AI</h1>
+      <!-- In production Webview, replace this relative path with webview.asWebviewUri(...) -->
+      <img class="ruyi-logo" src="../media/ruyi-logo.png" alt="Ruyi logo" />
+      <p>RuyiSDK intelligent coding assistant</p>
+    </section>
+
+    <section class="composer" aria-label="Yisi AI composer">
+      <textarea placeholder="Ask Yisi to work on your project..."></textarea>
+      <div class="composer-toolbar">
+        <div class="left-tools">
+          <button type="button">+</button>
+        </div>
+        <div class="right-tools">
+          <button type="button">Model</button>
+          <button type="button">Manual</button>
+          <button type="button" aria-label="Send">↑</button>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
