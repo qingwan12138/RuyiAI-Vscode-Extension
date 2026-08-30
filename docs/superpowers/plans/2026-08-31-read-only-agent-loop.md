@@ -30,11 +30,11 @@
 - Produces `AgentToolDefinition`, `AgentToolCall`, `AgentStreamEvent`, `AgentConversationMessage`, `AgentRequest`, and optional `LLMProvider.streamAgent(request, signal)`.
 - `AgentStreamEvent` is `{ type: 'textDelta'; text: string } | { type: 'toolCall'; call: AgentToolCall }`.
 
-- [ ] **Step 1: Write the failing runtime guard tests** for exact tool definition/message/event shapes and rejection of blank ids/names or non-object input through exported parse helpers.
-- [ ] **Step 2: Run RED:** `npm run compile && node --test test/agent-types.test.js`; expect missing exports.
-- [ ] **Step 3: Implement contracts and parsers** with trimmed non-empty identifiers, JSON-object input, and exact discriminants; keep `streamAgent` optional so existing provider fakes and ChatService remain compatible.
-- [ ] **Step 4: Run GREEN:** focused test, `npm test`, and `npm run check`; expect zero failures.
-- [ ] **Step 5: Commit:** `feat: define agent tool stream contracts`.
+- [x] **Step 1: Write the failing runtime guard tests** for exact tool definition/message/event shapes and rejection of blank ids/names or non-object input through exported parse helpers.
+- [x] **Step 2: Run RED:** `npm run compile && node --test test/agent-types.test.js`; expect missing exports.
+- [x] **Step 3: Implement contracts and parsers** with trimmed non-empty identifiers, JSON-object input, and exact discriminants; keep `streamAgent` optional so existing provider fakes and ChatService remain compatible.
+- [x] **Step 4: Run GREEN:** focused test, `npm test`, and `npm run check`; expect zero failures.
+- [x] **Step 5: Commit:** `feat: define agent tool stream contracts`.
 
 ### Task 2: OpenAI-compatible tool stream normalization
 
