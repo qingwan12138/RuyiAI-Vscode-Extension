@@ -62,3 +62,18 @@ test('normalizes failures without exposing arbitrary objects', async () => {
     { type: 'sessionError', message: 'provider unavailable' }
   ]);
 });
+
+test('forwards only host-resolved explicit contexts to ChatService', async () => {
+  let received;
+  const context = {
+    reference: { type: 'file', path: 'src/main.ts', workspaceFolderUri: 'file:///workspace' },
+    content: 'const value = 1;'
+  };
+  const coordinator = new ChatRunCoordinator({
+    async send(_text, _onDelta, _signal, contexts) { received = contexts; }
+  }, () => {});
+
+  await coordinator.start('explain', [context]);
+
+  assert.deepEqual(received, [context]);
+});

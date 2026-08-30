@@ -59,6 +59,19 @@ test('parseSessionDocument rejects malformed conversation items', () => {
   );
 });
 
+test('accepts file context references but rejects persisted raw attachment content', () => {
+  const session = validSession();
+  session.items[0].contexts = [{ type: 'file', path: 'src/main.ts', workspaceFolderUri: 'file:///workspace' }];
+  const document = {
+    schemaVersion: 1,
+    workspaces: { 'workspace-1': { activeSessionId: 'session-1', sessions: [session] } }
+  };
+
+  assert.deepEqual(parseSessionDocument(document), document);
+  session.items[0].contexts[0].content = 'must not persist';
+  assert.throws(() => parseSessionDocument(document), SessionSchemaError);
+});
+
 test('parseSessionDocument rejects an active session outside its workspace bucket', () => {
   assert.throws(
     () => parseSessionDocument({

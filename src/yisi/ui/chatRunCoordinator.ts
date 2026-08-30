@@ -1,4 +1,4 @@
-import { ChatService } from '../application/chat/chatService';
+import { ChatService, ExplicitFileContext } from '../application/chat/chatService';
 
 export type ChatRunEvent =
   | { type: 'assistantStreamStarted' }
@@ -19,7 +19,7 @@ export class ChatRunCoordinator {
     return this.controller !== undefined;
   }
 
-  async start(text: string): Promise<void> {
+  async start(text: string, contexts: ExplicitFileContext[] = []): Promise<void> {
     if (this.controller) {
       this.emit({ type: 'sessionError', message: 'A chat run is already in progress.' });
       return;
@@ -31,7 +31,8 @@ export class ChatRunCoordinator {
       await this.chat.send(
         text,
         delta => this.emit({ type: 'assistantStreamDelta', text: delta }),
-        controller.signal
+        controller.signal,
+        contexts
       );
       this.emit({ type: 'assistantStreamCompleted' });
     } catch (error: unknown) {

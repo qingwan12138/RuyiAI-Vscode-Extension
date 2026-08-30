@@ -1,10 +1,12 @@
 import {
   AssistantMessage,
+  ConversationContextReference,
   PermissionMode,
   SessionDocument,
   SessionStatus,
   SessionSummary,
   YisiSession,
+  parseContextReferences,
   parseSessionDocument
 } from '../../domain/session';
 import { SessionRepository } from './sessionRepository';
@@ -158,17 +160,19 @@ export class SessionService {
     }));
   }
 
-  appendUserMessage(text: string): Promise<void> {
+  appendUserMessage(text: string, contexts: ConversationContextReference[] = []): Promise<void> {
     return this.enqueue(() => this.mutate(workspace => {
       const normalized = requireText(text, 'Message');
+      const normalizedContexts = parseContextReferences(contexts);
       const session = this.activeSession(workspace.sessions, workspace.activeSessionId);
       const createdAt = this.now();
-      session.items.push({
+      const message = {
         id: this.createId(),
-        type: 'userMessage',
+        type: 'userMessage' as const,
         text: normalized,
         createdAt
-      });
+      };
+      session.items.push(normalizedContexts.length === 0 ? message : { ...message, contexts: normalizedContexts });
       session.updatedAt = createdAt;
     }));
   }

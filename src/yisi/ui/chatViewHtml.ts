@@ -390,6 +390,37 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       color: var(--vscode-input-placeholderForeground);
     }
 
+    .context-chips {
+      padding: 0 8px 4px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .context-chips:empty {
+      display: none;
+    }
+
+    .context-chip {
+      max-width: 100%;
+      padding: 3px 7px;
+      border: 1px solid var(--yisi-border);
+      border-radius: 999px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      background: var(--yisi-surface);
+      color: var(--yisi-muted);
+      font-size: 10px;
+      cursor: pointer;
+    }
+
+    .message-context {
+      margin-top: 5px;
+      opacity: .82;
+      font-size: 10px;
+    }
+
     .composer-footer {
       min-height: 38px;
       padding: 4px 5px 5px;
@@ -525,6 +556,7 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     <footer class="composer-wrap">
       <div class="composer">
         <textarea id="promptInput" rows="1" placeholder="Ask Yisi to work on your project..." aria-label="Message Yisi AI"></textarea>
+        <div class="context-chips" id="contextChips" aria-label="Attached context"></div>
         <div class="composer-footer">
           <div class="composer-left">
             <button class="control-button" id="addContext" type="button" title="Add context">
@@ -561,6 +593,7 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     const historyList = document.getElementById('historyList');
     const modelButton = document.getElementById('modelButton');
     const modelLabel = modelButton.querySelector('.control-label');
+    const contextChips = document.getElementById('contextChips');
     let sessionSummaries = [];
     let activeSession;
     let isRunning = false;
@@ -655,10 +688,16 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       streamedText = '';
 
       activeSession.items.forEach(item => {
-        appendMessage(
+        const node = appendMessage(
           item.text,
           item.type === 'userMessage' ? 'user' : (item.source === 'provider' ? 'assistant' : 'system')
         );
+        if (item.type === 'userMessage' && Array.isArray(item.contexts) && item.contexts.length > 0) {
+          const contextMeta = document.createElement('div');
+          contextMeta.className = 'message-context';
+          contextMeta.textContent = item.contexts.map(context => '@' + context.path).join(' · ');
+          node.appendChild(contextMeta);
+        }
       });
 
       showHistory(false);
@@ -676,6 +715,20 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       const content = document.getElementById('content');
       content.scrollTop = content.scrollHeight;
       return node;
+    }
+
+    function renderContexts(contexts) {
+      contextChips.replaceChildren();
+      (Array.isArray(contexts) ? contexts : []).forEach(context => {
+        if (!context || typeof context.path !== 'string') return;
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'context-chip';
+        chip.textContent = '@ ' + context.path;
+        chip.title = 'Clear attached context';
+        chip.addEventListener('click', () => vscode.postMessage({ type: 'clearContext' }));
+        contextChips.appendChild(chip);
+      });
     }
 
     function submit() {
@@ -761,6 +814,10 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
         transientAssistant = appendMessage('Thinking…', 'assistant', true);
         status.textContent = 'Generating…';
         updateSendState();
+      }
+
+      if (message.type === 'contextState') {
+        renderContexts(message.contexts);
       }
 
       if (message.type === 'assistantStreamDelta' && transientAssistant) {

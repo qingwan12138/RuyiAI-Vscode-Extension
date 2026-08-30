@@ -17,7 +17,16 @@ export interface UserMessage {
   type: 'userMessage';
   text: string;
   createdAt: number;
+  contexts?: ConversationContextReference[];
 }
+
+export interface FileContextReference {
+  type: 'file';
+  path: string;
+  workspaceFolderUri: string;
+}
+
+export type ConversationContextReference = FileContextReference;
 
 export interface AssistantMessage {
   id: string;
@@ -158,7 +167,10 @@ function parseConversationItem(value: unknown): ConversationItem {
   }
 
   if (value.type === 'userMessage') {
-    return { id: value.id, type: 'userMessage', text: value.text, createdAt: value.createdAt };
+    const contexts = parseContextReferences(value.contexts);
+    return contexts.length === 0
+      ? { id: value.id, type: 'userMessage', text: value.text, createdAt: value.createdAt }
+      : { id: value.id, type: 'userMessage', text: value.text, createdAt: value.createdAt, contexts };
   }
   if (value.type === 'assistantMessage' && isOneOf(value.source, ['baseline', 'provider'])) {
     return {
@@ -170,6 +182,23 @@ function parseConversationItem(value: unknown): ConversationItem {
     };
   }
   throw malformed();
+}
+
+export function parseContextReferences(value: unknown): ConversationContextReference[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw malformed();
+  return value.map(context => {
+    if (
+      !isRecord(context)
+      || !hasExactKeys(context, ['type', 'path', 'workspaceFolderUri'])
+      || context.type !== 'file'
+      || !isString(context.path)
+      || !isString(context.workspaceFolderUri)
+    ) {
+      throw malformed();
+    }
+    return { type: 'file', path: context.path, workspaceFolderUri: context.workspaceFolderUri };
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -186,6 +215,12 @@ function isTimestamp(value: unknown): value is number {
 
 function isOneOf<T extends string>(value: unknown, allowed: readonly T[]): value is T {
   return typeof value === 'string' && allowed.includes(value as T);
+}
+
+function hasExactKeys(value: Record<string, unknown>, expected: string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const keys = [...expected].sort();
+  return actual.length === keys.length && actual.every((key, index) => key === keys[index]);
 }
 
 function malformed(): SessionSchemaError {

@@ -3,19 +3,22 @@ import { createChatViewHtml } from './chatViewHtml';
 import { SessionService } from '../application/session/sessionService';
 import { WebviewMessage, parseWebviewMessage } from './webviewProtocol';
 import { ProviderSetupWizard } from '../vscode/provider/providerSetupWizard';
-import { ChatService } from '../application/chat/chatService';
+import { ChatService, ExplicitFileContext } from '../application/chat/chatService';
 import { ChatRunCoordinator } from './chatRunCoordinator';
+import { ExplicitContextPicker } from '../application/context/explicitContextPicker';
 
 export class YisiChatViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private disposables: vscode.Disposable[] = [];
   private readonly runs: ChatRunCoordinator;
+  private readonly pendingContexts = new Map<string, ExplicitFileContext[]>();
 
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly sessions: SessionService,
     private readonly providerSetup: ProviderSetupWizard,
-    chat: ChatService
+    chat: ChatService,
+    private readonly contextPicker: ExplicitContextPicker
   ) {
     this.runs = new ChatRunCoordinator(chat, event => {
       void this.view?.webview.postMessage(event);
@@ -93,10 +96,12 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
       case 'deleteSession':
         if (!this.requireIdle()) return;
         await this.sessions.deleteSession(message.sessionId);
+        this.pendingContexts.delete(message.sessionId);
         await this.publishState();
         return;
 
       case 'openSettings':
+        if (!this.requireIdle()) return;
         await this.openModelSettings();
         return;
 
@@ -113,9 +118,14 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
         return;
 
       case 'addContext':
-        await vscode.window.showInformationMessage(
-          'Context picker placeholder: @file / @folder / @symbol will be connected in the Context Engine milestone.'
-        );
+        if (!this.requireIdle()) return;
+        await this.addFileContext();
+        return;
+
+      case 'clearContext':
+        if (!this.requireIdle()) return;
+        this.pendingContexts.delete(this.sessions.getActiveSession().id);
+        await this.publishContextState();
         return;
 
       case 'sendMessage': {
@@ -134,8 +144,26 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async runChat(text: string): Promise<void> {
-    await this.runs.start(text);
+    const sessionId = this.sessions.getActiveSession().id;
+    const contexts = this.pendingContexts.get(sessionId) ?? [];
+    this.pendingContexts.delete(sessionId);
+    await this.publishContextState();
+    await this.runs.start(text, contexts);
     await this.publishState();
+  }
+
+  private async addFileContext(): Promise<void> {
+    const context = await this.contextPicker.pickFile();
+    if (!context) return;
+    const sessionId = this.sessions.getActiveSession().id;
+    const existing = this.pendingContexts.get(sessionId) ?? [];
+    const next = existing.filter(item => (
+      item.reference.path !== context.reference.path
+      || item.reference.workspaceFolderUri !== context.reference.workspaceFolderUri
+    ));
+    next.push(context);
+    this.pendingContexts.set(sessionId, next.slice(-4));
+    await this.publishContextState();
   }
 
   private requireIdle(): boolean {
@@ -165,6 +193,15 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
       type: 'sessionState',
       sessions: this.sessions.listSessions(),
       activeSession: this.sessions.getActiveSession()
+    });
+    await this.publishContextState();
+  }
+
+  private async publishContextState(): Promise<void> {
+    const sessionId = this.sessions.getActiveSession().id;
+    await this.view?.webview.postMessage({
+      type: 'contextState',
+      contexts: (this.pendingContexts.get(sessionId) ?? []).map(context => context.reference)
     });
   }
 

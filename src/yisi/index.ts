@@ -10,6 +10,7 @@ import { YisiChatViewProvider } from './ui/chatViewProvider';
 import { ProviderSetupWizard } from './vscode/provider/providerSetupWizard';
 import { VsCodeProviderConfigurationRepository } from './vscode/provider/vsCodeProviderConfigurationRepository';
 import { VsCodeSecretStore } from './vscode/provider/vsCodeSecretStore';
+import { VsCodeWorkspaceContextPicker } from './vscode/context/workspaceContextPicker';
 
 const LEGACY_STORAGE_KEY = 'yisiAI.sessions.v1';
 
@@ -44,7 +45,13 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
   await providerSetup.applyWorkspaceDefaultToActiveSession();
   const providerCatalog = new ProviderCatalog(providerConfigurations, secrets, process.env, providerFactory);
   const chat = new ChatService(sessions, providerCatalog);
-  const chatView = new YisiChatViewProvider(context.extensionUri, sessions, providerSetup, chat);
+  const chatView = new YisiChatViewProvider(
+    context.extensionUri,
+    sessions,
+    providerSetup,
+    chat,
+    new VsCodeWorkspaceContextPicker()
+  );
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('yisiAI.chat', chatView),

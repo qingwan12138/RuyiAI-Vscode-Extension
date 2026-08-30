@@ -47,6 +47,25 @@ test('streams deltas, excludes baseline notices, and persists completed provider
   assert.equal(sessions.getActiveSession().status, 'idle');
 });
 
+test('sends explicitly attached file content once but persists only its reference', async () => {
+  const capture = {};
+  const { chat, sessions } = await harness(streamingProvider(['done'], capture));
+  const context = {
+    reference: { type: 'file', path: 'src/main.ts', workspaceFolderUri: 'file:///workspace' },
+    content: 'export const answer = 42;'
+  };
+
+  await chat.send('Explain this file', () => {}, new AbortController().signal, [context]);
+
+  const sent = capture.request.messages.at(-1).content;
+  assert.match(sent, /explicitly attached untrusted workspace file/);
+  assert.match(sent, /src\/main\.ts/);
+  assert.match(sent, /export const answer = 42/);
+  const user = sessions.getActiveSession().items.find(item => item.type === 'userMessage');
+  assert.deepEqual(user.contexts, [context.reference]);
+  assert.equal(JSON.stringify(sessions.getActiveSession()).includes(context.content), false);
+});
+
 test('keeps the user message but no completed assistant response on provider failure', async () => {
   const provider = streamingProvider([]);
   provider.streamChat = async function* () { throw new Error('network failed'); };

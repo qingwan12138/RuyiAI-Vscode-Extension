@@ -15,7 +15,8 @@ test('accepts every payload-free Webview request', () => {
     'continue',
     'selectModel',
     'selectPermission',
-    'addContext'
+    'addContext',
+    'clearContext'
   ]) {
     assert.deepEqual(parseWebviewMessage({ type }), { type });
   }

@@ -7,6 +7,7 @@ export type WebviewMessage =
   | { type: 'selectModel' }
   | { type: 'selectPermission' }
   | { type: 'addContext' }
+  | { type: 'clearContext' }
   | { type: 'sendMessage'; text: string }
   | { type: 'switchSession'; sessionId: string }
   | { type: 'renameSession'; sessionId: string; title: string }
@@ -19,7 +20,8 @@ export type HostMessage =
   | { type: 'assistantStreamCompleted' }
   | { type: 'runStopped' }
   | { type: 'continueRequested' }
-  | { type: 'sessionError'; message: string };
+  | { type: 'sessionError'; message: string }
+  | { type: 'contextState'; contexts: unknown[] };
 
 export class WebviewProtocolError extends Error {
   constructor() {
@@ -36,7 +38,8 @@ const PAYLOAD_FREE_TYPES = new Set([
   'continue',
   'selectModel',
   'selectPermission',
-  'addContext'
+  'addContext',
+  'clearContext'
 ]);
 
 export function parseWebviewMessage(value: unknown): WebviewMessage {

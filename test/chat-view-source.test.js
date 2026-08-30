@@ -12,4 +12,6 @@ test('renders streamed provider content through textContent and explicit run-sta
   assert.match(source, /assistantStreamCompleted/);
   assert.match(source, /let isRunning = false/);
   assert.match(source, /vscode\.postMessage\(\{ type: 'stop' \}\)/);
+  assert.match(source, /contextState/);
+  assert.match(source, /vscode\.postMessage\(\{ type: 'clearContext' \}\)/);
 });
