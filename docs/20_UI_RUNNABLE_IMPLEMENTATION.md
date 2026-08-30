@@ -24,6 +24,13 @@ This is still not the final visual design, but it is now an executable UI baseli
 - responsive narrow-sidebar behavior
 - draft user-message rendering
 - extension-host message round trip
+- versioned local Session persistence under VS Code global storage
+- persisted user and baseline assistant messages
+- active Session restoration after Webview/extension restart
+- Session history list and switching
+- manual Session rename
+- confirmed Session deletion with blank-session fallback
+- runtime validation for all Webview-to-host messages
 
 ## Deliberately not implemented yet
 
@@ -31,7 +38,6 @@ This is still not the final visual design, but it is now an executable UI baseli
 - model picker popup
 - real permission selector
 - @file/@folder/@symbol picker
-- session history drawer
 - Agent tool cards
 - diff UI
 - plan/todo
@@ -39,6 +45,8 @@ This is still not the final visual design, but it is now an executable UI baseli
 - Ruyi environment cards
 
 These must be added according to the architecture milestones instead of faked in the UI layer.
+
+The persisted baseline assistant notice is explicitly labelled as a non-provider response. It verifies the durable UI/host pipeline without pretending that an LLM or Agent run succeeded.
 
 ## Visual principle
 

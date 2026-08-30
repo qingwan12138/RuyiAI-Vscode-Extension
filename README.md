@@ -17,7 +17,7 @@ Yisi AI 是面向 RuyiSDK / RISC-V 开发场景的 VS Code Coding Agent。最终
 
 当前 Webview 已经不是工程占位页。F5 后打开 Yisi AI，会直接看到 Ruyi 品牌欢迎页、快捷任务和底部 Composer。
 
-当前输入消息只用于验证 UI/Extension Host 消息链路，尚未连接真实 LLM 与 Agent Runtime。
+当前 Session 元数据、用户消息和明确标注的 baseline assistant notice 会持久化到 VS Code 全局扩展存储。历史面板支持切换、重命名和确认删除，重启 Webview/扩展后会恢复当前 Session。真实 LLM 与 Agent Runtime 仍未连接，界面不会伪造模型成功结果。
 
 ## UI 品牌方向
 
@@ -89,7 +89,7 @@ Remote-SSH 不作为当前 v1.0 必须交付能力，后续需要时再单独增
 
 ## 当前阶段
 
-本包仍是开发蓝图 + 类型骨架，不声称已完成 Agent。真正开发从 v0.1 的 Provider/Session/UI 基础闭环开始，并按 `docs/12_ROADMAP_AND_DOD.md` 验收。
+本包仍处于 v0.1 Foundation 开发阶段，不声称已完成 Agent。Session 持久化与历史管理切片已经落地；Provider 设置、SecretStorage、真实流式聊天和 fake-provider 端到端测试仍需按 `docs/12_ROADMAP_AND_DOD.md` 继续实现与验收。
 
 ## v0.5 Runnable Baseline 使用方式
 
