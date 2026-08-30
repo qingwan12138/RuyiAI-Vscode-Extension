@@ -89,7 +89,7 @@ Remote-SSH 不作为当前 v1.0 必须交付能力，后续需要时再单独增
 
 ## 当前阶段
 
-本包已完成 v0.1 Foundation / Chat Vertical Slice 的代码基线，并进入 v0.2 Coding Agent MVP，但不声称已完成 Coding Agent。现已具备 Session/模型持久化、Provider 设置、安全凭据、SSE 流式聊天、Stop、受工作区边界保护的 Read/List/Search 工具、类型化 Permission Engine、显式 `@file` 内容附加，以及结构化 ProcessRunner/ValidationEngine。ProcessRunner 使用精确 argv、独立输出限量、超时/取消和 Linux 进程组终止；Diagnostics、Agent tool loop 与受控编辑闭环仍待继续实现。
+本包已完成 v0.1 Foundation / Chat Vertical Slice 的代码基线，并进入 v0.2 Coding Agent MVP，但不声称已完成 Coding Agent。现已具备 Session/模型持久化、Provider 设置、安全凭据、SSE 流式聊天、Stop、受工作区边界保护的 Read/List/Search 工具、类型化 Permission Engine、显式 `@file` 内容附加，以及结构化 ProcessRunner/ValidationEngine。ProcessRunner 使用精确 argv、独立输出限量、超时/取消和 Linux 进程组终止；VS Code Diagnostics 已有工作区限定的快照适配器和验证证据，但尚未接入真实 Agent 调用方。Agent tool loop 与受控编辑闭环仍待继续实现。
 
 ## 配置并运行聊天
 
