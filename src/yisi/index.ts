@@ -1,14 +1,19 @@
 import * as vscode from 'vscode';
-import { SessionStore } from './session/sessionStore';
-import { PermissionEngine } from './permissions/permissionEngine';
-import { ProviderRegistry } from './llm/providerRegistry';
+import { LegacySessionMetadata, SessionService } from './application/session/sessionService';
+import { JsonSessionRepository } from './infrastructure/persistence/jsonSessionRepository';
 import { YisiChatViewProvider } from './ui/chatViewProvider';
 
+const LEGACY_STORAGE_KEY = 'yisiAI.sessions.v1';
+
 export async function registerYisiAI(context: vscode.ExtensionContext): Promise<void> {
-  const sessions = new SessionStore(context);
-  const permissions = new PermissionEngine();
-  const providers = new ProviderRegistry(context.secrets);
-  const chatView = new YisiChatViewProvider(context.extensionUri, sessions, permissions, providers);
+  const repository = new JsonSessionRepository(context.globalStorageUri.fsPath);
+  const sessions = new SessionService(repository);
+  const legacySessions = context.workspaceState.get<LegacySessionMetadata[]>(LEGACY_STORAGE_KEY, []);
+  const initialization = await sessions.initialize(getWorkspaceId(), legacySessions);
+  if (initialization.importedLegacy) {
+    await context.workspaceState.update(LEGACY_STORAGE_KEY, undefined);
+  }
+  const chatView = new YisiChatViewProvider(context.extensionUri, sessions);
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('yisiAI.chat', chatView),
@@ -17,4 +22,15 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
     vscode.commands.registerCommand('yisiAI.stop', () => chatView.stopCurrentRun()),
     vscode.commands.registerCommand('yisiAI.continue', () => chatView.continueCurrentSession())
   );
+}
+
+function getWorkspaceId(): string {
+  if (vscode.workspace.workspaceFile) {
+    return vscode.workspace.workspaceFile.toString();
+  }
+
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  return folders.length > 0
+    ? folders.map(folder => folder.uri.toString()).sort().join('|')
+    : 'no-workspace';
 }

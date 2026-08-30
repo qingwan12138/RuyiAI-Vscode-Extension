@@ -1,17 +1,8 @@
 import * as vscode from 'vscode';
-import { SessionStore } from '../session/sessionStore';
-import { PermissionEngine } from '../permissions/permissionEngine';
-import { ProviderRegistry } from '../llm/providerRegistry';
+import { SessionService } from '../application/session/sessionService';
+import { WebviewMessage, parseWebviewMessage } from './webviewProtocol';
 
-type WebviewMessage =
-  | { type: 'newChat' }
-  | { type: 'openSettings' }
-  | { type: 'stop' }
-  | { type: 'continue' }
-  | { type: 'sendMessage'; text: string }
-  | { type: 'selectModel' }
-  | { type: 'selectPermission' }
-  | { type: 'addContext' };
+const BASELINE_ASSISTANT_NOTICE = 'Message saved. A model provider is not connected yet, so Yisi AI has not generated a response.';
 
 export class YisiChatViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
@@ -19,13 +10,8 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
 
   constructor(
     private readonly extensionUri: vscode.Uri,
-    private readonly sessions: SessionStore,
-    private readonly permissions: PermissionEngine,
-    private readonly providers: ProviderRegistry
-  ) {
-    void this.permissions;
-    void this.providers;
-  }
+    private readonly sessions: SessionService
+  ) {}
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
@@ -44,7 +30,7 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
     view.webview.html = this.html(view.webview);
 
     this.disposables.push(
-      view.webview.onDidReceiveMessage((message: WebviewMessage) => this.handleMessage(message)),
+      view.webview.onDidReceiveMessage((message: unknown) => this.receiveMessage(message)),
       view.onDidDispose(() => {
         this.disposeViewListeners();
         this.view = undefined;
@@ -53,9 +39,8 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   async newSession(): Promise<void> {
-    const workspaceId = this.getWorkspaceId();
-    const session = await this.sessions.create(workspaceId, '', '', 'plan');
-    await this.view?.webview.postMessage({ type: 'sessionCreated', session });
+    await this.sessions.createSession();
+    await this.publishState();
   }
 
   async openModelSettings(): Promise<void> {
@@ -72,8 +57,27 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
 
   private async handleMessage(message: WebviewMessage): Promise<void> {
     switch (message.type) {
+      case 'ready':
+        await this.publishState();
+        return;
+
       case 'newChat':
         await this.newSession();
+        return;
+
+      case 'switchSession':
+        await this.sessions.switchSession(message.sessionId);
+        await this.publishState();
+        return;
+
+      case 'renameSession':
+        await this.sessions.renameSession(message.sessionId, message.title);
+        await this.publishState();
+        return;
+
+      case 'deleteSession':
+        await this.sessions.deleteSession(message.sessionId);
+        await this.publishState();
         return;
 
       case 'openSettings':
@@ -94,15 +98,9 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
         return;
 
       case 'sendMessage': {
-        const text = message.text.trim();
-        if (!text) {
-          return;
-        }
-        await this.view?.webview.postMessage({
-          type: 'draftSubmitted',
-          text,
-          note: 'UI pipeline is working. LLM/Agent Runtime will be connected in the next development milestone.'
-        });
+        await this.sessions.appendUserMessage(message.text);
+        await this.sessions.appendAssistantMessage(BASELINE_ASSISTANT_NOTICE, 'baseline');
+        await this.publishState();
         return;
       }
 
@@ -116,15 +114,25 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private getWorkspaceId(): string {
-    if (vscode.workspace.workspaceFile) {
-      return vscode.workspace.workspaceFile.toString();
+  private async receiveMessage(value: unknown): Promise<void> {
+    try {
+      await this.handleMessage(parseWebviewMessage(value));
+    } catch (error: unknown) {
+      const diagnostic = error instanceof Error ? `${error.name}: ${error.message}` : 'Unknown session error';
+      console.error(`[Yisi AI] ${diagnostic}`);
+      await this.view?.webview.postMessage({
+        type: 'sessionError',
+        message: 'Yisi AI could not complete that session action. Your last saved session is unchanged.'
+      });
     }
+  }
 
-    const folders = vscode.workspace.workspaceFolders ?? [];
-    return folders.length > 0
-      ? folders.map((folder: vscode.WorkspaceFolder) => folder.uri.toString()).sort().join('|')
-      : 'no-workspace';
+  private async publishState(): Promise<void> {
+    await this.view?.webview.postMessage({
+      type: 'sessionState',
+      sessions: this.sessions.listSessions(),
+      activeSession: this.sessions.getActiveSession()
+    });
   }
 
   private disposeViewListeners(): void {
@@ -686,6 +694,7 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
 
     updateSendState();
     resizeInput();
+    vscode.postMessage({ type: 'ready' });
   </script>
 </body>
 </html>`;
