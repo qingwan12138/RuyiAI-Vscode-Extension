@@ -22,6 +22,12 @@ async function collect(iterable) {
   return text;
 }
 
+async function collectEvents(iterable) {
+  const events = [];
+  for await (const event of iterable) events.push(event);
+  return events;
+}
+
 test('discovers and normalizes model ids', async () => {
   const provider = new OpenAICompatibleProvider({
     id: 'local', baseUrl: 'http://127.0.0.1:8080/v1',
@@ -82,4 +88,127 @@ test('rejects malformed streamed JSON and empty responses', async () => {
   await assert.rejects(async () => collect(malformed.streamChat({ model: 'm', messages: [] })), /Malformed provider stream event/);
   const empty = new OpenAICompatibleProvider({ id: 'p', baseUrl: 'https://example.com/v1', fetchImpl: async () => sseResponse(['data: [DONE]\n\n']) });
   await assert.rejects(async () => collect(empty.streamChat({ model: 'm', messages: [] })), /empty response/);
+});
+
+test('maps structural agent messages and reassembles fragmented tool calls', async () => {
+  let sent;
+  const provider = new OpenAICompatibleProvider({
+    id: 'openai', baseUrl: 'https://api.openai.com/v1',
+    fetchImpl: async (_url, init) => {
+      sent = JSON.parse(init.body);
+      return sseResponse([
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"read_","arguments":"{\\"path\\":"}}]},"finish_reason":null}]}\n\n',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"file","arguments":"\\"src/main.ts\\"}"}}]},"finish_reason":null}]}\n\n',
+        'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
+        'data: [DONE]\n\n'
+      ]);
+    }
+  });
+  const request = {
+    model: 'gpt-compatible',
+    messages: [
+      { role: 'user', content: 'inspect' },
+      { role: 'assistant', content: '', toolCalls: [{ id: 'old-1', name: 'search_text', input: { query: 'x' } }] },
+      { role: 'tool', toolCallId: 'old-1', name: 'search_text', content: '{"matches":[]}' }
+    ],
+    tools: [{
+      name: 'read_file', description: 'Read a file',
+      parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] }
+    }]
+  };
+
+  const events = await collectEvents(provider.streamAgent(request));
+
+  assert.deepEqual(events, [{ type: 'toolCall', call: { id: 'call-1', name: 'read_file', input: { path: 'src/main.ts' } } }]);
+  assert.equal(sent.tool_choice, 'auto');
+  assert.equal(sent.stream, true);
+  assert.deepEqual(sent.tools, [{ type: 'function', function: request.tools[0] }]);
+  assert.deepEqual(sent.messages[1], {
+    role: 'assistant', content: null,
+    tool_calls: [{ id: 'old-1', type: 'function', function: { name: 'search_text', arguments: '{"query":"x"}' } }]
+  });
+  assert.deepEqual(sent.messages[2], {
+    role: 'tool', tool_call_id: 'old-1', name: 'search_text', content: '{"matches":[]}'
+  });
+});
+
+test('streams normalized final text agent events', async () => {
+  const provider = new OpenAICompatibleProvider({
+    id: 'p', baseUrl: 'https://example.com/v1',
+    fetchImpl: async () => sseResponse([
+      'data: {"choices":[{"delta":{"content":"answer"},"finish_reason":null}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+      'data: [DONE]\n\n'
+    ])
+  });
+  assert.deepEqual(await collectEvents(provider.streamAgent({ model: 'm', messages: [], tools: [] })), [
+    { type: 'textDelta', text: 'answer' }
+  ]);
+});
+
+test('rejects malformed, missing, and oversized tool call arguments', async () => {
+  const cases = [
+    '{bad',
+    '[]',
+    JSON.stringify({ value: 'x'.repeat(70_000) }),
+    '{"path":"x"}'
+  ];
+  for (let index = 0; index < cases.length; index += 1) {
+    const args = cases[index];
+    const provider = new OpenAICompatibleProvider({
+      id: 'p', baseUrl: 'https://example.com/v1',
+      fetchImpl: async () => sseResponse([
+        `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, ...(index === 3 ? {} : { id: 'call-1' }), function: { name: 'read_file', arguments: args } }] }, finish_reason: null }] })}\n\n`,
+        'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n'
+      ])
+    });
+    await assert.rejects(
+      async () => collectEvents(provider.streamAgent({ model: 'm', messages: [], tools: [] })),
+      /Malformed provider tool call|too large/
+    );
+  }
+});
+
+test('emits multiple indexed calls and rejects mixed or excessive calls', async () => {
+  const calls = [
+    { index: 0, id: 'c0', function: { name: 'read_file', arguments: '{"path":"a"}' } },
+    { index: 1, id: 'c1', function: { name: 'list_directory', arguments: '{"path":"."}' } }
+  ];
+  const multiple = new OpenAICompatibleProvider({
+    id: 'p', baseUrl: 'https://example.com/v1',
+    fetchImpl: async () => sseResponse([
+      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: calls }, finish_reason: null }] })}\n\n`,
+      'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n'
+    ])
+  });
+  assert.deepEqual(
+    (await collectEvents(multiple.streamAgent({ model: 'm', messages: [], tools: [] }))).map(event => event.call.id),
+    ['c0', 'c1']
+  );
+
+  const mixed = new OpenAICompatibleProvider({
+    id: 'p', baseUrl: 'https://example.com/v1',
+    fetchImpl: async () => sseResponse([
+      'data: {"choices":[{"delta":{"content":"text"},"finish_reason":null}]}\n\n',
+      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [calls[0]] }, finish_reason: null }] })}\n\n`
+    ])
+  });
+  await assert.rejects(
+    async () => collectEvents(mixed.streamAgent({ model: 'm', messages: [], tools: [] })),
+    /mixed text and tool calls/
+  );
+
+  const excessiveCalls = Array.from({ length: 17 }, (_, index) => ({
+    index, id: `c${index}`, function: { name: 'read_file', arguments: '{}' }
+  }));
+  const excessive = new OpenAICompatibleProvider({
+    id: 'p', baseUrl: 'https://example.com/v1',
+    fetchImpl: async () => sseResponse([
+      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: excessiveCalls }, finish_reason: null }] })}\n\n`
+    ])
+  });
+  await assert.rejects(
+    async () => collectEvents(excessive.streamAgent({ model: 'm', messages: [], tools: [] })),
+    /too many tool calls/
+  );
 });

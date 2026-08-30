@@ -47,11 +47,11 @@
 - Sends `{model,messages,tools,tool_choice:'auto',stream:true}` with tool definitions mapped to Chat Completions function tools.
 - Accumulates calls by numeric index, max 16 calls and 65,536 argument bytes per call.
 
-- [ ] **Step 1: Write failing tests** for request mapping, fragmented name/argument events, multiple calls, final text, malformed JSON, missing call id/name, mixed text/tool completion, count limit, and argument limit.
-- [ ] **Step 2: Run RED:** focused provider test; expect `streamAgent is not a function`.
-- [ ] **Step 3: Implement `streamAgent`** using the existing SSE parser and transport error normalization. Parse only JSON objects and emit calls only on a `tool_calls` finish reason.
-- [ ] **Step 4: Run GREEN:** focused/full tests and typecheck.
-- [ ] **Step 5: Commit:** `feat: normalize compatible provider tool calls`.
+- [x] **Step 1: Write failing tests** for request mapping, fragmented name/argument events, multiple calls, final text, malformed JSON, missing call id/name, mixed text/tool completion, count limit, and argument limit.
+- [x] **Step 2: Run RED:** focused provider test; expect `streamAgent is not a function`.
+- [x] **Step 3: Implement `streamAgent`** using the existing SSE parser and transport error normalization. Parse only JSON objects and emit calls only on a `tool_calls` finish reason.
+- [x] **Step 4: Run GREEN:** focused/full tests and typecheck.
+- [x] **Step 5: Commit:** `feat: normalize compatible provider tool calls`.
 
 ### Task 3: Registry, result bounds, and read-only loop
 
