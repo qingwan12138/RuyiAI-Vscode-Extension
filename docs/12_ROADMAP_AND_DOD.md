@@ -16,6 +16,8 @@ DoD：重启 VS Code 会话可恢复；secret 不落普通存储；fake provider
 - ProcessRunner + Diagnostics
 DoD：fixture repo 可完成“定位 → 修改 proposal → 用户批准 → 验证”的端到端任务。
 
+当前实现状态（2026-08-30，部分）：已实现受限 Read/List/Search、canonical workspace/symlink 边界、常见凭据文件的隐式搜索排除、显式文件上下文附加，以及统一风险类型的 Permission Engine。尚未实现 Agent tool loop、写入 proposal/批准、ProcessRunner、Diagnostics 与验证闭环，因此 v0.2 DoD 尚未完成。
+
 ## v0.3 Reliable Editing
 - patch/edit/create/delete + stale write guard
 - diff/accept/reject/undo

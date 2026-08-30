@@ -13,3 +13,5 @@
 - Provider API keys use opaque `yisiAI.provider.<providerId>.apiKey` SecretStorage keys and never enter provider/session JSON or Webview messages.
 - An environment credential stores only its variable name; the value is resolved in the Extension Host at request time.
 - A streamed assistant response is persisted only after the provider stream completes. Interrupted partial text remains transient UI state.
+- Explicit file attachments persist only `{ type, path, workspaceFolderUri }` references on the user message. Raw file content remains transient in the Extension Host and is cleared after the next send.
+- Implicit text search skips common credential-bearing files (`.env*`, `.npmrc`, `.pypirc`, `.netrc`, `*.pem`, `*.key`) and never reads `.gitignore` content by default.

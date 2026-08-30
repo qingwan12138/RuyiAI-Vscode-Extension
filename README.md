@@ -89,7 +89,7 @@ Remote-SSH 不作为当前 v1.0 必须交付能力，后续需要时再单独增
 
 ## 当前阶段
 
-本包已完成 v0.1 Foundation / Chat Vertical Slice 的代码基线，但不声称已完成 Coding Agent。现已具备 Session 持久化、Provider 设置、SecretStorage/环境变量凭据、模型发现与选择、OpenAI-compatible SSE 流式聊天和 Stop 取消。下一阶段按 `docs/12_ROADMAP_AND_DOD.md` 开发 v0.2 的上下文工具、Permission Engine、ProcessRunner、Diagnostics 与首个受控编辑闭环。
+本包已完成 v0.1 Foundation / Chat Vertical Slice 的代码基线，并进入 v0.2 Coding Agent MVP，但不声称已完成 Coding Agent。现已具备 Session/模型持久化、Provider 设置、安全凭据、SSE 流式聊天、Stop、受工作区边界保护的 Read/List/Search 工具、类型化 Permission Engine，以及显式 `@file` 内容附加。ProcessRunner、Diagnostics、Agent tool loop 与受控编辑闭环仍待继续实现。
 
 ## 配置并运行聊天
 
@@ -97,6 +97,7 @@ Remote-SSH 不作为当前 v1.0 必须交付能力，后续需要时再单独增
 2. 首次使用选择 `Add Provider`，可配置官方 OpenAI 或自定义 OpenAI-compatible 地址。
 3. API Key 可存入 VS Code SecretStorage，或只填写环境变量名；可信的本地兼容端点可选择无凭据。
 4. 选择模型后发送消息；生成期间发送按钮变为 Stop。
+5. 点击 Composer 左侧 `＋` 可显式附加当前工作区内的 UTF-8 文本文件；Session 只保存文件引用，原始文件内容仅用于当次请求。
 
 Provider 普通元数据与密钥分开保存。自定义本地端点允许 HTTP；官方 OpenAI 配置强制 HTTPS。当前自动化测试使用本地 fake HTTP/SSE 服务，不代表已使用用户的真实云账号完成联网验收。
 

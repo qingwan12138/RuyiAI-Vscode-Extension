@@ -39,11 +39,15 @@ This is still not the final visual design, but it is now an executable UI baseli
 - Send/Stop run-state control with AbortSignal propagation
 - partial provider output discarded on failure or Stop
 - session/model switching blocked while a provider run is active
+- workspace-scoped file picker behind the Composer `＋` action
+- removable pending file-context chips
+- persisted file references on user messages without persisting raw file content
+- explicit attached content included only in the next provider request
 
 ## Deliberately not implemented yet
 
 - real permission selector
-- @file/@folder/@symbol picker
+- @folder/@symbol picker and inline `@` search
 - Agent tool cards
 - diff UI
 - plan/todo
