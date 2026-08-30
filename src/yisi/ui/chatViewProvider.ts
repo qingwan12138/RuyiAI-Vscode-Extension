@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { createChatViewHtml } from './chatViewHtml';
 import { SessionService } from '../application/session/sessionService';
 import { WebviewMessage, parseWebviewMessage } from './webviewProtocol';
+import { ProviderSetupWizard } from '../vscode/provider/providerSetupWizard';
 
 const BASELINE_ASSISTANT_NOTICE = 'Message saved. A model provider is not connected yet, so Yisi AI has not generated a response.';
 
@@ -11,7 +12,8 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
 
   constructor(
     private readonly extensionUri: vscode.Uri,
-    private readonly sessions: SessionService
+    private readonly sessions: SessionService,
+    private readonly providerSetup: ProviderSetupWizard
   ) {}
 
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -45,7 +47,8 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   async openModelSettings(): Promise<void> {
-    await vscode.commands.executeCommand('workbench.action.openSettings', 'Yisi AI');
+    await this.providerSetup.run();
+    await this.publishState();
   }
 
   stopCurrentRun(): void {
@@ -82,8 +85,12 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
         return;
 
       case 'openSettings':
-      case 'selectModel':
         await this.openModelSettings();
+        return;
+
+      case 'selectModel':
+        await this.providerSetup.pickModelForSession();
+        await this.publishState();
         return;
 
       case 'selectPermission':

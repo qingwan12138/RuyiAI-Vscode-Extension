@@ -1,7 +1,14 @@
 import * as vscode from 'vscode';
+import { randomUUID } from 'node:crypto';
+import { ProviderConfigurationService } from './application/provider/providerConfigurationService';
 import { LegacySessionMetadata, SessionService } from './application/session/sessionService';
+import { ProviderFactory } from './application/provider/providerCatalog';
+import { OpenAICompatibleProvider } from './infrastructure/llm/openAICompatibleProvider';
 import { JsonSessionRepository } from './infrastructure/persistence/jsonSessionRepository';
 import { YisiChatViewProvider } from './ui/chatViewProvider';
+import { ProviderSetupWizard } from './vscode/provider/providerSetupWizard';
+import { VsCodeProviderConfigurationRepository } from './vscode/provider/vsCodeProviderConfigurationRepository';
+import { VsCodeSecretStore } from './vscode/provider/vsCodeSecretStore';
 
 const LEGACY_STORAGE_KEY = 'yisiAI.sessions.v1';
 
@@ -13,7 +20,27 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
   if (initialization.importedLegacy) {
     await context.workspaceState.update(LEGACY_STORAGE_KEY, undefined);
   }
-  const chatView = new YisiChatViewProvider(context.extensionUri, sessions);
+  const secrets = new VsCodeSecretStore(context.secrets);
+  const providerConfigurations = new ProviderConfigurationService(
+    new VsCodeProviderConfigurationRepository(context.globalState, context.workspaceState),
+    secrets,
+    { createId: randomUUID, now: Date.now }
+  );
+  await providerConfigurations.initialize();
+  const providerFactory: ProviderFactory = {
+    create: (configuration, apiKey) => new OpenAICompatibleProvider({
+      id: configuration.id,
+      baseUrl: configuration.baseUrl,
+      apiKey
+    })
+  };
+  const providerSetup = new ProviderSetupWizard(
+    providerConfigurations,
+    sessions,
+    providerFactory,
+    process.env
+  );
+  const chatView = new YisiChatViewProvider(context.extensionUri, sessions, providerSetup);
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('yisiAI.chat', chatView),
