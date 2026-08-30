@@ -97,5 +97,5 @@
 
 - [x] Review branch diff for secret leakage, shell use, process-tree targeting, cleanup races, and dependency direction.
 - [x] Run fresh `npm test`, `npm run check`, `npm run compile`, `git diff --check`, and `git status --short`.
-- [ ] Commit `docs: record process validation baseline`.
-- [ ] Fast-forward merge to `main`, rerun tests, delete the merged branch, then continue with Diagnostics/Agent loop.
+- [x] Commit `docs: record process validation baseline`.
+- [x] Fast-forward merge to `main`, rerun tests, delete the merged branch, then continue with Diagnostics/Agent loop.
