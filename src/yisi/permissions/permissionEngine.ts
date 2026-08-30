@@ -1,39 +1,76 @@
 import { PermissionMode } from '../domain/session';
+import { ToolRisk } from '../domain/tool';
 
-export type ToolRisk = 'read' | 'write' | 'command' | 'destructive';
+export type PermissionOutcome = 'allow' | 'confirm' | 'deny';
+
+export interface ToolPermissionRequest {
+  risk: ToolRisk;
+  mutatesWorkspace: boolean;
+}
 
 export interface PermissionDecision {
+  outcome: PermissionOutcome;
   allowed: boolean;
   needsConfirmation: boolean;
   reason: string;
 }
 
+const KNOWN_RISKS: readonly ToolRisk[] = [
+  'readOnly',
+  'workspaceWrite',
+  'processExec',
+  'network',
+  'environmentChange',
+  'destructive',
+  'credentialSensitive'
+];
+
 export class PermissionEngine {
-  evaluate(mode: PermissionMode, risk: ToolRisk): PermissionDecision {
+  evaluate(mode: PermissionMode, request: ToolPermissionRequest): PermissionDecision {
+    if (!isConsistent(request)) {
+      return deny('Tool risk metadata is unknown or inconsistent.');
+    }
+    if (request.risk === 'readOnly') {
+      return allow('Read-only workspace action.');
+    }
     if (mode === 'plan') {
-      return risk === 'read'
-        ? { allowed: true, needsConfirmation: false, reason: 'Plan mode permits read-only actions.' }
-        : { allowed: false, needsConfirmation: false, reason: 'Plan mode blocks state-changing actions.' };
+      return deny('Plan mode blocks state-changing and privileged actions.');
     }
-
     if (mode === 'manual') {
-      return risk === 'read'
-        ? { allowed: true, needsConfirmation: false, reason: 'Read action.' }
-        : { allowed: true, needsConfirmation: true, reason: 'Manual mode requires confirmation.' };
+      return confirm('Manual mode requires approval for this action.');
     }
-
     if (mode === 'acceptEdits') {
-      if (risk === 'destructive') return { allowed: true, needsConfirmation: true, reason: 'Destructive action requires confirmation.' };
-      if (risk === 'command') return { allowed: true, needsConfirmation: true, reason: 'Command execution requires confirmation.' };
-      return { allowed: true, needsConfirmation: false, reason: 'Read/edit allowed.' };
+      return request.risk === 'workspaceWrite'
+        ? allow('Accept Edits mode permits workspace file changes.')
+        : confirm('Accept Edits mode still requires approval for privileged actions.');
     }
-
     if (mode === 'auto') {
-      return risk === 'destructive'
-        ? { allowed: true, needsConfirmation: true, reason: 'High-risk action requires confirmation.' }
-        : { allowed: true, needsConfirmation: false, reason: 'Auto mode allows routine actions.' };
+      return request.risk === 'workspaceWrite'
+        ? allow('Auto mode permits bounded workspace file changes.')
+        : confirm('Auto mode requires approval until this privileged action is classified more narrowly.');
     }
-
-    return { allowed: true, needsConfirmation: false, reason: 'Full Access mode.' };
+    if (request.risk === 'destructive' || request.risk === 'credentialSensitive') {
+      return confirm('Full Access retains confirmation for destructive or credential-sensitive actions.');
+    }
+    return allow('Full Access permits this declared action.');
   }
+}
+
+function isConsistent(request: ToolPermissionRequest): boolean {
+  if (!KNOWN_RISKS.includes(request.risk)) return false;
+  if (request.risk === 'readOnly') return request.mutatesWorkspace === false;
+  if (request.risk === 'workspaceWrite') return request.mutatesWorkspace === true;
+  return typeof request.mutatesWorkspace === 'boolean';
+}
+
+function allow(reason: string): PermissionDecision {
+  return { outcome: 'allow', allowed: true, needsConfirmation: false, reason };
+}
+
+function confirm(reason: string): PermissionDecision {
+  return { outcome: 'confirm', allowed: true, needsConfirmation: true, reason };
+}
+
+function deny(reason: string): PermissionDecision {
+  return { outcome: 'deny', allowed: false, needsConfirmation: false, reason };
 }
