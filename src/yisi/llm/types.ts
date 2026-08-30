@@ -17,9 +17,13 @@ export interface ChatRequest {
   messages: ChatMessage[];
 }
 
+export interface ChatDelta {
+  text: string;
+}
+
 export interface LLMProvider {
   readonly id: string;
-  listModels(): Promise<string[]>;
+  listModels(signal?: AbortSignal): Promise<string[]>;
   capabilities(model: string): Promise<ModelCapabilities>;
-  chat(request: ChatRequest, signal?: AbortSignal): Promise<string>;
+  streamChat(request: ChatRequest, signal?: AbortSignal): AsyncIterable<ChatDelta>;
 }
