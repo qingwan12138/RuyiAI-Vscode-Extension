@@ -18,4 +18,4 @@
 - [x] Write failing tests for diagnostic pass/fail/unavailable/truncated evidence.
 - [x] Extend validation orchestration without weakening structured command validation.
 - [ ] Wire the adapter at the Extension Host composition root together with the first real Agent validation caller; do not add an unused instance.
-- [ ] Verify, document, merge to main, then continue the Agent tool loop.
+- [x] Verify, document, merge to main, then continue the Agent tool loop.
