@@ -79,9 +79,11 @@ test('lists stable entries without traversing symlinks', async t => {
   ]);
 });
 
-test('searches literal text with line numbers, skips implicit gitignore content, and keeps case', async t => {
+test('searches literal text while skipping implicit ignore and credential files', async t => {
   const { root, adapter } = await fixture(t);
   await fs.writeFile(path.join(root, '.gitignore'), 'needle should not become model context');
+  await fs.writeFile(path.join(root, '.env'), 'TOKEN=needle-must-stay-local');
+  await fs.writeFile(path.join(root, '.npmrc'), '//registry.example/:_authToken=needle-secret');
 
   const result = await adapter.searchText('needle', '.');
 

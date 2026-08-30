@@ -135,15 +135,17 @@ export class NodeWorkspaceFileSystem implements FileSystemPort {
           if (!SKIPPED_DIRECTORY_NAMES.has(entry.name)) directories.push(target);
           continue;
         }
-        if (!entry.isFile() || entry.name === '.gitignore') continue;
+        if (!entry.isFile() || isImplicitlySkippedFile(entry.name)) continue;
         if (scannedFiles >= this.limits.maxSearchFiles) {
           truncated = true;
           break;
         }
-        const stat = await fs.stat(target);
+        const canonicalTarget = await fs.realpath(target);
+        this.assertWithinRoot(canonicalTarget);
+        const stat = await fs.stat(canonicalTarget);
         if (stat.size > this.limits.maxSearchFileBytes) continue;
         scannedFiles += 1;
-        const bytes = await readBounded(target, this.limits.maxSearchFileBytes, signal);
+        const bytes = await readBounded(canonicalTarget, this.limits.maxSearchFileBytes, signal);
         let text: string;
         try { text = decodeText(bytes); } catch (error) {
           if (error instanceof WorkspaceContentError) continue;
@@ -240,6 +242,18 @@ function entryKind(entry: import('node:fs').Dirent): WorkspaceEntryKind {
 
 function compareNames(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function isImplicitlySkippedFile(name: string): boolean {
+  const lower = name.toLowerCase();
+  return lower === '.gitignore'
+    || lower === '.env'
+    || lower.startsWith('.env.')
+    || lower === '.npmrc'
+    || lower === '.pypirc'
+    || lower === '.netrc'
+    || lower.endsWith('.pem')
+    || lower.endsWith('.key');
 }
 
 function validateLimits(limits: WorkspaceContextLimits): WorkspaceContextLimits {
