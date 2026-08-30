@@ -90,6 +90,19 @@ test('returns cancelled when AbortSignal stops a running child', async () => {
   assert.equal(result.exitCode, null);
 });
 
+test('does not spawn when already cancelled', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const result = await runner.run({
+    executable: path.join(process.cwd(), 'definitely-missing-yisi-executable'),
+    args: [],
+    cwd: process.cwd()
+  }, controller.signal);
+
+  assert.equal(result.status, 'cancelled');
+  assert.equal(result.errorMessage, undefined);
+});
+
 test('normalizes spawn failure and does not reject the run promise', async () => {
   const result = await runner.run({
     executable: path.join(process.cwd(), 'definitely-missing-yisi-executable'),

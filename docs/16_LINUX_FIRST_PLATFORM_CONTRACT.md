@@ -272,6 +272,8 @@ ProcessRunner
 
 Agent 使用 build/test/lint/ruyi/git 时，默认走 ProcessRunner。
 
+当前实现基线（2026-08-31）：`NodeProcessRunner` 已通过 domain port 提供精确 executable/args、cwd/env、双流字节限量、超时、AbortSignal、spawn failure 归一化和环境覆盖值脱敏。当前 Windows 开发机自动化覆盖通用生命周期；正式 Linux Desktop/CI 的真实进程树 smoke test 仍是交付验收项。
+
 ---
 
 ## 8. Linux Process / Signal Contract
@@ -322,6 +324,8 @@ still alive
         ↓
 SIGKILL controlled group
 ```
+
+当前 Linux adapter 以 detached child 建立 Yisi 自有进程组，只向 `-child.pid` 定向发送信号；不使用 `pkill`、进程名匹配或 shell。`ESRCH` 归一为进程组已结束。该实现仍需在 Ubuntu LTS 与 Debian stable 验证真实构建子树。
 
 ---
 

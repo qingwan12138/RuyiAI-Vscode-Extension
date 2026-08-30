@@ -130,8 +130,9 @@ export class NodeProcessRunner implements ProcessRunner {
       child.stdout?.on('data', (chunk: Buffer) => stdout.append(chunk));
       child.stderr?.on('data', (chunk: Buffer) => stderr.append(chunk));
       child.once('error', error => {
+        const status = requestedStatus ?? 'spawnFailed';
         settle({
-          status: 'spawnFailed', exitCode: null, signal: null,
+          status, exitCode: null, signal: null,
           stdout: redactCapture(stdout.snapshot(), secrets),
           stderr: redactCapture(stderr.snapshot(), secrets),
           errorMessage: boundedError(error, secrets)
@@ -149,7 +150,8 @@ export class NodeProcessRunner implements ProcessRunner {
       });
 
       signal.addEventListener('abort', onAbort, { once: true });
-      timer = setTimeout(() => terminate('timedOut'), timeoutMs);
+      if (signal.aborted) onAbort();
+      if (!requestedStatus) timer = setTimeout(() => terminate('timedOut'), timeoutMs);
     });
   }
 }

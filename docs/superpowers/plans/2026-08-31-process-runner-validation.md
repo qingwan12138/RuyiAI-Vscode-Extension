@@ -30,11 +30,11 @@
 - Produces `ProcessStatus`, `ProcessRequest`, `CapturedOutput`, `ProcessResult`, and `ProcessRunner`.
 - Produces `BoundedOutput.append(chunk)` and `snapshot()` with head/tail retention, total bytes, and `truncated`.
 
-- [ ] Write failing tests for below-limit UTF-8, multi-byte/chunk boundaries, truncation head/tail, and zero secret/environment serialization.
-- [ ] Run `npm test` and confirm the new module is missing.
-- [ ] Implement byte-based bounded capture without decoding each chunk independently.
-- [ ] Run `npm test` and `npm run check`; expect zero failures.
-- [ ] Commit `feat: define bounded process results`.
+- [x] Write failing tests for below-limit UTF-8, multi-byte/chunk boundaries, truncation head/tail, and zero secret/environment serialization.
+- [x] Run `npm test` and confirm the new module is missing.
+- [x] Implement byte-based bounded capture without decoding each chunk independently.
+- [x] Run `npm test` and `npm run check`; expect zero failures.
+- [x] Commit `feat: define bounded process results`.
 
 ### Task 2: NodeProcessRunner lifecycle
 
@@ -47,11 +47,11 @@
 - Consumes `ProcessRequest` and an injected `ProcessTreeController.terminate(child, graceMs)`.
 - Produces one `ProcessResult` for exit, cancellation, timeout, or spawn failure.
 
-- [ ] Write failing integration tests using `process.execPath` for argument boundaries, cwd with spaces, stdout/stderr, non-zero exit, environment override, output truncation, AbortSignal, timeout, and nonexistent executable.
-- [ ] Run the focused test and confirm RED.
-- [ ] Implement exact-argv spawn, stdin close, bounded capture, timer/abort cleanup, and a single terminal-state resolver.
-- [ ] Run focused and full tests plus typecheck.
-- [ ] Commit `feat: add cancellable node process runner`.
+- [x] Write failing integration tests using `process.execPath` for argument boundaries, cwd with spaces, stdout/stderr, non-zero exit, environment override, output truncation, AbortSignal, timeout, and nonexistent executable.
+- [x] Run the focused test and confirm RED.
+- [x] Implement exact-argv spawn, stdin close, bounded capture, timer/abort cleanup, and a single terminal-state resolver.
+- [x] Run focused and full tests plus typecheck.
+- [x] Commit `feat: add cancellable node process runner`.
 
 ### Task 3: Linux process-group termination
 
@@ -63,11 +63,11 @@
 - Produces `LinuxProcessTreeController` that signals only `-child.pid` with SIGTERM then optional SIGKILL.
 - Produces `DirectChildProcessController` for non-Linux development and injected tests.
 
-- [ ] Write failing fake-host tests for negative process-group id, grace escalation, early exit, missing pid, and ESRCH normalization.
-- [ ] Run focused test and confirm RED.
-- [ ] Implement controllers without `pkill`, shell commands, or name matching.
-- [ ] Run focused/full tests and typecheck.
-- [ ] Commit `feat: terminate owned linux process groups`.
+- [x] Write failing fake-host tests for negative process-group id, grace escalation, early exit, missing pid, and ESRCH normalization.
+- [x] Run focused test and confirm RED.
+- [x] Implement controllers without `pkill`, shell commands, or name matching.
+- [x] Run focused/full tests and typecheck.
+- [x] Commit `feat: terminate owned linux process groups`.
 
 ### Task 4: Validation evidence orchestration
 
@@ -79,11 +79,11 @@
 - Consumes `ProcessRunner.run(request, signal)` and structured `CommandValidationStep` values.
 - Produces `ValidationResult` with honest `passed`, terminal reason, per-step evidence, and bounded summaries.
 
-- [ ] Write failing tests for empty plan, sequential pass, non-zero stop, timeout/cancel stop, truncation metadata, and exact request forwarding.
-- [ ] Run focused test and confirm RED.
-- [ ] Implement orchestration with no command-string parsing.
-- [ ] Run full tests, typecheck, compile, and diff checks.
-- [ ] Commit `feat: produce command validation evidence`.
+- [x] Write failing tests for empty plan, sequential pass, non-zero stop, timeout/cancel stop, truncation metadata, and exact request forwarding.
+- [x] Run focused test and confirm RED.
+- [x] Implement orchestration with no command-string parsing.
+- [x] Run full tests, typecheck, compile, and diff checks.
+- [x] Commit `feat: produce command validation evidence`.
 
 ### Task 5: Documentation, review, and integration
 
@@ -95,7 +95,7 @@
 **Interfaces:**
 - Records exact delivered behavior and Linux CI limitations without claiming the v0.2 Agent loop is complete.
 
-- [ ] Review branch diff for secret leakage, shell use, process-tree targeting, cleanup races, and dependency direction.
-- [ ] Run fresh `npm test`, `npm run check`, `npm run compile`, `git diff --check`, and `git status --short`.
+- [x] Review branch diff for secret leakage, shell use, process-tree targeting, cleanup races, and dependency direction.
+- [x] Run fresh `npm test`, `npm run check`, `npm run compile`, `git diff --check`, and `git status --short`.
 - [ ] Commit `docs: record process validation baseline`.
 - [ ] Fast-forward merge to `main`, rerun tests, delete the merged branch, then continue with Diagnostics/Agent loop.
