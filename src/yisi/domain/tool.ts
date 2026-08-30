@@ -8,7 +8,10 @@ export interface ToolExecutionContext {
 
 export interface YisiTool<TInput = unknown, TResult = unknown> {
   id: string;
+  description: string;
   risk: ToolRisk;
   mutatesWorkspace: boolean;
+  supportsCancellation: boolean;
+  inputSchema: Readonly<Record<string, unknown>>;
   execute(input: TInput, context: ToolExecutionContext): Promise<TResult>;
 }
