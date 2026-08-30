@@ -1,4 +1,4 @@
-import { PermissionMode } from '../session/types';
+import { PermissionMode } from '../domain/session';
 
 export type ToolRisk = 'read' | 'write' | 'command' | 'destructive';
 

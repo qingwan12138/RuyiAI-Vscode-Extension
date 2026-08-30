@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { randomUUID } from 'crypto';
-import { PermissionMode, YisiSession } from './types';
+import { PermissionMode, YisiSession } from '../domain/session';
 
 const STORAGE_KEY = 'yisiAI.sessions.v1';
 
@@ -15,14 +15,16 @@ export class SessionStore {
     const now = Date.now();
     const session: YisiSession = {
       id: randomUUID(),
-      title: 'New Chat',
       workspaceId,
+      title: 'New Chat',
+      titleSource: 'fallback',
       model: { providerId, modelId },
       permissionMode,
+      executionWorkspace: { kind: 'current', uri: workspaceId },
       createdAt: now,
       updatedAt: now,
-      userRenamed: false,
-      status: 'idle'
+      status: 'idle',
+      items: []
     };
     await this.save([...this.list(), session]);
     return session;
