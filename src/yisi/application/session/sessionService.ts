@@ -189,6 +189,22 @@ export class SessionService {
     }));
   }
 
+  setModelSelection(model: YisiSession['model']): Promise<void> {
+    return this.enqueue(() => this.mutate(workspace => {
+      const session = this.activeSession(workspace.sessions, workspace.activeSessionId);
+      session.model = { ...model };
+      session.updatedAt = this.now();
+    }));
+  }
+
+  setStatus(status: YisiSession['status']): Promise<void> {
+    return this.enqueue(() => this.mutate(workspace => {
+      const session = this.activeSession(workspace.sessions, workspace.activeSessionId);
+      session.status = status;
+      session.updatedAt = this.now();
+    }));
+  }
+
   private async mutate<T>(
     change: (workspace: SessionDocument['workspaces'][string]) => T
   ): Promise<T> {
