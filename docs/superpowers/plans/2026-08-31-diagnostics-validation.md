@@ -15,7 +15,7 @@
 
 ### Task 2: Validation composition
 
-- [ ] Write failing tests for diagnostic pass/fail/unavailable/truncated evidence.
-- [ ] Extend validation orchestration without weakening structured command validation.
+- [x] Write failing tests for diagnostic pass/fail/unavailable/truncated evidence.
+- [x] Extend validation orchestration without weakening structured command validation.
 - [ ] Wire the adapter at the Extension Host composition root.
 - [ ] Verify, document, merge to main, then continue the Agent tool loop.

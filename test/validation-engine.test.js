@@ -105,11 +105,10 @@ test('never echoes validation environment values into evidence', async () => {
   assert.equal('env' in result.steps[0].step, false);
 });
 
-test('rejects diagnostics and malformed shell-like validation steps before execution', async () => {
+test('rejects malformed shell-like validation steps before execution', async () => {
   let calls = 0;
   const engine = new ValidationEngine({ run: async () => { calls += 1; return processResult(); } });
   const invalid = [
-    { kind: 'diagnostics', executable: 'code', args: [], cwd: process.cwd() },
     step('build', { executable: '' }),
     step('test', { args: 'npm test' }),
     step('lint', { args: ['ok', 42] }),
@@ -123,4 +122,59 @@ test('rejects diagnostics and malformed shell-like validation steps before execu
     );
   }
   assert.equal(calls, 0);
+});
+
+test('uses workspace diagnostics as pass/fail evidence without spawning a process', async () => {
+  let processCalls = 0;
+  const snapshots = [
+    {
+      available: true, items: [], total: 1, truncated: true,
+      counts: { error: 0, warning: 1, information: 0, hint: 0 }
+    },
+    {
+      available: true,
+      items: [{ uri: 'file:///workspace/a.ts', severity: 'error', message: 'broken' }],
+      total: 1, truncated: false,
+      counts: { error: 1, warning: 0, information: 0, hint: 0 }
+    }
+  ];
+  const engine = new ValidationEngine(
+    { run: async () => { processCalls += 1; return processResult(); } },
+    { read: async () => snapshots.shift() }
+  );
+
+  const passing = await engine.validate([{ kind: 'diagnostics' }], new AbortController().signal);
+  assert.equal(passing.passed, true);
+  assert.equal(passing.reason, 'completed');
+  assert.equal(passing.steps[0].summary, 'diagnostics passed (0 errors, 1 warning; retained items truncated).');
+  assert.equal(passing.steps[0].snapshot.truncated, true);
+
+  const failing = await engine.validate([{ kind: 'diagnostics' }], new AbortController().signal);
+  assert.equal(failing.passed, false);
+  assert.equal(failing.reason, 'failed');
+  assert.equal(failing.steps[0].summary, 'diagnostics failed (1 error, 0 warnings).');
+  assert.equal(processCalls, 0);
+});
+
+test('diagnostics unavailable is no evidence and never a pass', async () => {
+  const engine = new ValidationEngine(
+    { run: async () => processResult() },
+    { read: async () => ({
+      available: false, items: [], total: 0, truncated: false,
+      counts: { error: 0, warning: 0, information: 0, hint: 0 }
+    }) }
+  );
+
+  const result = await engine.validate([{ kind: 'diagnostics' }], new AbortController().signal);
+
+  assert.equal(result.passed, false);
+  assert.equal(result.reason, 'noEvidence');
+  assert.equal(result.steps[0].summary, 'diagnostics unavailable.');
+});
+
+test('diagnostics step without a provider is unavailable evidence', async () => {
+  const engine = new ValidationEngine({ run: async () => processResult() });
+  const result = await engine.validate([{ kind: 'diagnostics' }], new AbortController().signal);
+  assert.equal(result.passed, false);
+  assert.equal(result.reason, 'noEvidence');
 });
