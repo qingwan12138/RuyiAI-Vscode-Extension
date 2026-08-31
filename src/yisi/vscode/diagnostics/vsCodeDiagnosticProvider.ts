@@ -5,6 +5,7 @@ import {
   DiagnosticSeverity,
   DiagnosticSnapshot
 } from '../../domain/diagnostics';
+import { isImplicitlySensitivePath } from '../../context/implicitSensitivePath';
 
 interface UriLike {
   toString(): string;
@@ -79,6 +80,7 @@ export class VsCodeDiagnosticProvider implements DiagnosticProvider {
     const items: DiagnosticItem[] = [];
     for (const [uri, diagnostics] of this.facade.getDiagnostics()) {
       abortIfRequested(signal);
+      if (isSensitiveUri(uri.toString())) continue;
       const folder = this.facade.getWorkspaceFolder(uri);
       if (!folder || !this.allowedWorkspaceUris.has(folder.uri.toString())) continue;
       for (const diagnostic of diagnostics) {
@@ -107,5 +109,13 @@ export class VsCodeDiagnosticProvider implements DiagnosticProvider {
       truncated: total > this.maxItems,
       counts
     };
+  }
+}
+
+function isSensitiveUri(value: string): boolean {
+  try {
+    return isImplicitlySensitivePath(decodeURIComponent(new URL(value).pathname));
+  } catch {
+    return true;
   }
 }

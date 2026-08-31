@@ -241,6 +241,29 @@ test('forwards cancellation without converting it into a successful result', asy
   );
 });
 
+test('reports a completed workspace mutation when cancellation arrives after the write', async () => {
+  const controller = new AbortController();
+  const edit = tool('replace_text', async () => {
+    controller.abort();
+    return { path: 'src/a.ts', replacements: 1 };
+  });
+  edit.risk = 'workspaceWrite';
+  edit.mutatesWorkspace = true;
+  const loop = new AgentToolLoop(
+    provider([[call('edit-1', 'replace_text', { path: 'src/a.ts' })]]),
+    new ToolRegistry([edit]),
+    new PermissionEngine()
+  );
+
+  const result = await loop.run(request, context(controller.signal), 'acceptEdits', () => {}, controller.signal);
+
+  assert.equal(result.status, 'blocked');
+  assert.match(result.reason, /change was applied/i);
+  assert.deepEqual(result.executions, [{
+    callId: 'edit-1', toolId: 'replace_text', outcome: 'succeeded', truncated: false
+  }]);
+});
+
 test('tool registry rejects duplicate ids and returns cloned definitions', () => {
   assert.throws(() => new ToolRegistry([tool(), tool()]), /Duplicate tool id/);
   const registry = new ToolRegistry([tool()]);

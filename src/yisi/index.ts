@@ -19,6 +19,7 @@ import { PermissionEngine } from './permissions/permissionEngine';
 import { AgentChatRunner } from './application/agent/agentChatRunner';
 import { WorkspaceEditService, createWorkspaceEditTool } from './application/edit/workspaceEditService';
 import { VsCodeToolConfirmation } from './vscode/agent/vsCodeToolConfirmation';
+import { VsCodeDiagnosticProvider } from './vscode/diagnostics/vsCodeDiagnosticProvider';
 
 const LEGACY_STORAGE_KEY = 'yisiAI.sessions.v1';
 
@@ -77,9 +78,13 @@ async function createAgentRunner(): Promise<AgentChatRunner | undefined> {
   if (!workspace) return undefined;
   try {
     const fileSystem = await NodeWorkspaceFileSystem.create(workspace.fsPath);
+    const diagnostics = new VsCodeDiagnosticProvider({
+      getDiagnostics: () => vscode.languages.getDiagnostics(),
+      getWorkspaceFolder: uri => vscode.workspace.getWorkspaceFolder(uri as vscode.Uri)
+    }, [workspace.uri], 50);
     const tools = [
       ...createWorkspaceContextTools(new WorkspaceContextService(fileSystem)),
-      createWorkspaceEditTool(new WorkspaceEditService(fileSystem))
+      createWorkspaceEditTool(new WorkspaceEditService(fileSystem, diagnostics))
     ];
     return new AgentChatRunner(
       new ToolRegistry(tools),

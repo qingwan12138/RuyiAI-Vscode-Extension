@@ -40,6 +40,8 @@ ReadFile, ListDirectory, SearchText, SearchFiles, GetSymbols, ReadDiagnostics, A
 - Manual：proposal/diff → approval → write。
 - Accept Edits/Auto：write → visible diff; risk ops 仍过 PermissionEngine。
 
+当前最小写入切片只支持已有 UTF-8 文件中的唯一文本替换，并要求 `read_file` 返回的 SHA-256 作为 stale guard。成功写入会把有界的即时 VS Code diagnostics 快照放入结构化工具结果；该快照仅供下一轮判断，不等于语言服务已经刷新完毕，也不替代完成前的有效验证。
+
 ## Validation
 修改批次后可做轻量 diagnostics；准备完成时至少一次“有意义验证”。ValidationPlanner 根据项目选择相关 tests/build/typecheck/lint，不要求所有项目跑全部命令。
 

@@ -7,7 +7,7 @@ const {
   createWorkspaceEditTool
 } = require('../dist/yisi/application/edit/workspaceEditService');
 
-function harness() {
+function harness(diagnostics) {
   const calls = [];
   const port = {
     async replaceText(change, signal) {
@@ -21,7 +21,7 @@ function harness() {
       };
     }
   };
-  const service = new WorkspaceEditService(port);
+  const service = new WorkspaceEditService(port, diagnostics);
   return { calls, service, tool: createWorkspaceEditTool(service) };
 }
 
@@ -43,9 +43,34 @@ test('declares one bounded workspace-write tool and forwards the execution signa
   assert.equal(tool.mutatesWorkspace, true);
   assert.equal(tool.supportsCancellation, true);
   assert.deepEqual(calls, [[valid, signal]]);
-  assert.equal(result.replacements, 1);
+  assert.equal(result.edit.replacements, 1);
+  assert.equal(result.diagnostics.status, 'unavailable');
   assert.deepEqual(tool.inputSchema.required, ['path', 'expectedSha256', 'oldText', 'newText']);
   assert.equal(tool.inputSchema.additionalProperties, false);
+});
+
+test('returns a bounded diagnostic snapshot after the edit without turning collection failure into edit failure', async () => {
+  const snapshot = {
+    available: true,
+    items: [{ uri: 'file:///workspace/src/main.ts', severity: 'error', message: 'broken' }],
+    total: 1,
+    truncated: false,
+    counts: { error: 1, warning: 0, information: 0, hint: 0 }
+  };
+  const signal = new AbortController().signal;
+  const successful = harness({ read: async received => {
+    assert.equal(received, signal);
+    return snapshot;
+  } });
+
+  const result = await successful.tool.execute(valid, { sessionId: 's1', workspaceUri: 'file:///workspace', signal });
+  assert.deepEqual(result.diagnostics, { status: 'snapshot', snapshot });
+  assert.equal(successful.calls.length, 1);
+
+  const failing = harness({ read: async () => { throw new Error('language server unavailable'); } });
+  const failedEvidence = await failing.tool.execute(valid, { sessionId: 's1', workspaceUri: 'file:///workspace', signal });
+  assert.equal(failedEvidence.edit.replacements, 1);
+  assert.deepEqual(failedEvidence.diagnostics, { status: 'unavailable' });
 });
 
 test('rejects malformed or oversized edit inputs before reaching the write port', async () => {

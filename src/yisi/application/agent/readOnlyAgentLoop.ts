@@ -162,7 +162,18 @@ export class AgentToolLoop {
         let outcome: AgentToolExecutionEvidence['outcome'] = 'succeeded';
         try {
           const result = await tool.execute(call.input, { ...context, signal });
-          signal.throwIfAborted();
+          if (signal.aborted) {
+            if (tool.mutatesWorkspace) {
+              executions.push({
+                callId: call.id,
+                toolId: call.name,
+                outcome: 'succeeded',
+                truncated: false
+              });
+              return blocked('Run stopped after a workspace change was applied.', executions);
+            }
+            signal.throwIfAborted();
+          }
           const serialized = boundedSuccess(result, this.options.maxResultCharacters);
           content = serialized.content;
           truncated = serialized.truncated;

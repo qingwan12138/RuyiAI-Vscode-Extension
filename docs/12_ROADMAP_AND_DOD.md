@@ -16,7 +16,7 @@ DoD：重启 VS Code 会话可恢复；secret 不落普通存储；fake provider
 - ProcessRunner + Diagnostics
 DoD：fixture repo 可完成“定位 → 修改 proposal → 用户批准 → 验证”的端到端任务。
 
-当前实现状态（2026-08-31，部分）：已实现受限 Read/List/Search/唯一文本替换、canonical workspace/symlink 边界、常见凭据文件的隐式搜索/Agent 读写排除、显式文件上下文附加、统一风险类型的 Permission Engine，以及结构化 ProcessRunner、VS Code Diagnostics 快照与顺序 ValidationEngine。进程执行使用 `shell:false` 的精确 argv，stdout/stderr 独立限量，支持超时/取消；Linux 使用受控进程组 SIGTERM → grace → SIGKILL。新建 Provider 可显式启用 OpenAI-compatible 结构化 Agent tool loop；单一本地工作区的 Composer 已接通工具 schema、逐次权限判定、结果回传、取消与循环保护，旧配置迁移为关闭。编辑要求 read 返回的 SHA-256、唯一匹配与原子同目录替换；Plan 拒绝，Manual 使用 Extension Host 原生确认，Session 权限选择器已接通。创建/删除/重命名、完整 diff/undo 与编辑后自动验证闭环仍未实现，因此 v0.2 DoD 尚未完成。
+当前实现状态（2026-08-31，部分）：已实现受限 Read/List/Search/唯一文本替换、canonical workspace/symlink 边界、常见凭据文件的隐式搜索/Agent 读写排除、显式文件上下文附加、统一风险类型的 Permission Engine，以及结构化 ProcessRunner、VS Code Diagnostics 快照与顺序 ValidationEngine。进程执行使用 `shell:false` 的精确 argv，stdout/stderr 独立限量，支持超时/取消；Linux 使用受控进程组 SIGTERM → grace → SIGKILL。新建 Provider 可显式启用 OpenAI-compatible 结构化 Agent tool loop；单一本地工作区的 Composer 已接通工具 schema、逐次权限判定、结果回传、取消与循环保护，旧配置迁移为关闭。编辑要求 read 返回的 SHA-256、唯一匹配与原子同目录替换；Plan 拒绝，Manual 使用 Extension Host 原生确认，Session 权限选择器已接通。成功编辑会返回有界的即时 workspace diagnostics 快照；不可用时明确标记，且不把快照宣称为语言服务刷新完成或验证通过。创建/删除/重命名、完整 diff/undo 与完成级自动验证闭环仍未实现，因此 v0.2 DoD 尚未完成。
 
 ## v0.3 Reliable Editing
 - patch/edit/create/delete + stale write guard

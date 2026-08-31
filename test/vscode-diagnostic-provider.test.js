@@ -15,11 +15,13 @@ test('returns only configured workspace diagnostics with normalized stable evide
   const fileB = uri('file:///workspace/b.ts');
   const fileA = uri('file:///workspace/a.ts');
   const outside = uri('file:///other/x.ts');
-  const folders = new Map([[fileA, root], [fileB, root], [outside, otherRoot]]);
+  const sensitive = uri('file:///workspace/.env');
+  const folders = new Map([[fileA, root], [fileB, root], [outside, otherRoot], [sensitive, root]]);
   const facade = {
     getDiagnostics: () => [
       [fileB, [{ range: range(4, 1), message: 'warning', severity: 1, source: 'ts' }]],
       [outside, [{ range: range(0, 0), message: 'outside', severity: 0 }]],
+      [sensitive, [{ range: range(0, 0), message: 'TOKEN=must-not-leave-host', severity: 0 }]],
       [fileA, [{ range: range(2, 3), message: 'error', severity: 0, code: { value: 123 } }]]
     ],
     getWorkspaceFolder: target => {
