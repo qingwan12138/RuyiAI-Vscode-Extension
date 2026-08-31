@@ -113,6 +113,9 @@ export class ReadOnlyAgentLoop {
 
         const tool = this.registry.get(call.name);
         if (!tool) return blocked(`Unknown tool: ${bounded(call.name, 128)}`, executions);
+        if (tool.risk !== 'readOnly' || tool.mutatesWorkspace) {
+          return blocked('Tool is outside the read-only Agent scope.', executions);
+        }
         const decision = this.permissions.evaluate(mode, {
           risk: tool.risk,
           mutatesWorkspace: tool.mutatesWorkspace

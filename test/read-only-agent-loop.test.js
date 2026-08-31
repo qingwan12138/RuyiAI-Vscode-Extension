@@ -113,6 +113,24 @@ test('blocks unknown tools and permission confirmation without executing', async
   assert.equal(executed, false);
 });
 
+test('fails closed when a non-read-only tool is accidentally registered', async () => {
+  let executed = false;
+  const unsafe = tool('run_command', async () => { executed = true; });
+  unsafe.risk = 'processExec';
+  const loop = new ReadOnlyAgentLoop(
+    provider([[call('c1', 'run_command', { path: 'ignored' })]]),
+    new ToolRegistry([unsafe]),
+    { evaluate: () => ({ outcome: 'allow', allowed: true, needsConfirmation: false, reason: 'incorrect allow' }) }
+  );
+  const signal = new AbortController().signal;
+
+  const result = await loop.run(request, context(signal), 'fullAccess', () => {}, signal);
+
+  assert.equal(result.status, 'blocked');
+  assert.match(result.reason, /read-only Agent scope/i);
+  assert.equal(executed, false);
+});
+
 test('returns bounded tool failures to the provider so it can recover', async () => {
   const requests = [];
   const loop = new ReadOnlyAgentLoop(

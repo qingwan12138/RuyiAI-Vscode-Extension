@@ -49,7 +49,7 @@ export function createWorkspaceContextTools(service: WorkspaceContextService): Y
       mutatesWorkspace: false,
       supportsCancellation: true,
       inputSchema: objectSchema({ path: stringSchema('Workspace-relative directory path') }, ['path']),
-      execute: async (input, context) => service.listDirectory(parsePathInput(input), context.signal)
+      execute: async (input, context) => service.listDirectory(parseAgentListInput(input), context.signal)
     },
     {
       id: 'search_text',
@@ -75,6 +75,14 @@ function parseAgentReadInput(value: unknown): ReadFileInput {
   const input = parsePathInput(value);
   if (isImplicitlySensitivePath(input.path)) {
     throw new WorkspaceContextInputError('Implicit Agent reads of credential-sensitive files are blocked.');
+  }
+  return input;
+}
+
+function parseAgentListInput(value: unknown): ListDirectoryInput {
+  const input = parsePathInput(value);
+  if (isImplicitlySensitivePath(input.path)) {
+    throw new WorkspaceContextInputError('Implicit Agent listing of credential-sensitive directories is blocked.');
   }
   return input;
 }

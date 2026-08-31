@@ -85,9 +85,10 @@ test('agent read tool rejects implicit credential files without changing explici
   const signal = new AbortController().signal;
   const execution = { sessionId: 's1', workspaceUri: 'file:///workspace', signal };
 
-  for (const path of ['.env', 'config/.env.local', '.npmrc', 'keys/private.pem', 'keys/id.key']) {
+  for (const path of ['.env', 'config/.env.local', '.npmrc', 'keys/private.pem', 'keys/id.key', '.git/config']) {
     await assert.rejects(tools[0].execute({ path }, execution), /credential-sensitive/i);
   }
+  await assert.rejects(tools[1].execute({ path: '.git' }, execution), /credential-sensitive/i);
   await service.readFile({ path: '.env' }, signal);
   await tools[0].execute({ path: 'src/main.ts' }, execution);
 
