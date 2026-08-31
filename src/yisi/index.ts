@@ -11,6 +11,12 @@ import { ProviderSetupWizard } from './vscode/provider/providerSetupWizard';
 import { VsCodeProviderConfigurationRepository } from './vscode/provider/vsCodeProviderConfigurationRepository';
 import { VsCodeSecretStore } from './vscode/provider/vsCodeSecretStore';
 import { VsCodeWorkspaceContextPicker } from './vscode/context/workspaceContextPicker';
+import { selectLocalAgentWorkspace } from './vscode/context/localAgentWorkspace';
+import { NodeWorkspaceFileSystem } from './infrastructure/context/nodeWorkspaceFileSystem';
+import { WorkspaceContextService, createWorkspaceContextTools } from './application/context/workspaceContextService';
+import { ToolRegistry } from './application/agent/toolRegistry';
+import { PermissionEngine } from './permissions/permissionEngine';
+import { AgentChatRunner } from './application/agent/agentChatRunner';
 
 const LEGACY_STORAGE_KEY = 'yisiAI.sessions.v1';
 
@@ -33,7 +39,8 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
     create: (configuration, apiKey) => new OpenAICompatibleProvider({
       id: configuration.id,
       baseUrl: configuration.baseUrl,
-      apiKey
+      apiKey,
+      toolCalling: configuration.capabilities.toolCalling
     })
   };
   const providerSetup = new ProviderSetupWizard(
@@ -44,7 +51,8 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
   );
   await providerSetup.applyWorkspaceDefaultToActiveSession();
   const providerCatalog = new ProviderCatalog(providerConfigurations, secrets, process.env, providerFactory);
-  const chat = new ChatService(sessions, providerCatalog);
+  const agentRunner = await createAgentRunner();
+  const chat = new ChatService(sessions, providerCatalog, agentRunner);
   const chatView = new YisiChatViewProvider(
     context.extensionUri,
     sessions,
@@ -60,6 +68,19 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
     vscode.commands.registerCommand('yisiAI.stop', () => chatView.stopCurrentRun()),
     vscode.commands.registerCommand('yisiAI.continue', () => chatView.continueCurrentSession())
   );
+}
+
+async function createAgentRunner(): Promise<AgentChatRunner | undefined> {
+  const workspace = selectLocalAgentWorkspace(vscode.workspace.workspaceFolders);
+  if (!workspace) return undefined;
+  try {
+    const fileSystem = await NodeWorkspaceFileSystem.create(workspace.fsPath);
+    const tools = createWorkspaceContextTools(new WorkspaceContextService(fileSystem));
+    return new AgentChatRunner(new ToolRegistry(tools), new PermissionEngine(), workspace.uri);
+  } catch {
+    console.warn('[Yisi AI] Local Agent workspace initialization is unavailable.');
+    return undefined;
+  }
 }
 
 function getWorkspaceId(): string {

@@ -89,15 +89,16 @@ Remote-SSH 不作为当前 v1.0 必须交付能力，后续需要时再单独增
 
 ## 当前阶段
 
-本包已完成 v0.1 Foundation / Chat Vertical Slice 的代码基线，并进入 v0.2 Coding Agent MVP，但不声称已完成 Coding Agent。现已具备 Session/模型持久化、Provider 设置、安全凭据、SSE 流式聊天、Stop、受工作区边界保护的 Read/List/Search 工具、类型化 Permission Engine、显式 `@file` 内容附加，以及结构化 ProcessRunner/ValidationEngine。ProcessRunner 使用精确 argv、独立输出限量、超时/取消和 Linux 进程组终止；VS Code Diagnostics 已有工作区限定的快照适配器和验证证据。应用层现已具备 OpenAI-compatible 结构化只读 Agent tool loop，可执行 Read/List/Search 并带权限、取消、结果限量和循环保护；Provider capability 配置及 Session/UI 装配尚未接通，因此当前 Composer 仍走原有纯聊天链路。受控编辑闭环仍待继续实现。
+本包已完成 v0.1 Foundation / Chat Vertical Slice 的代码基线，并进入 v0.2 Coding Agent MVP，但不声称已完成 Coding Agent。现已具备 Session/模型持久化、Provider 设置、安全凭据、SSE 流式聊天、Stop、受工作区边界保护的 Read/List/Search 工具、类型化 Permission Engine、显式 `@file` 内容附加，以及结构化 ProcessRunner/ValidationEngine。ProcessRunner 使用精确 argv、独立输出限量、超时/取消和 Linux 进程组终止；VS Code Diagnostics 已有工作区限定的快照适配器和验证证据。新建 Provider 时可显式启用 OpenAI-compatible 结构化只读 Agent tools；在单一本地工作区内，当前 Composer 会执行 Read/List/Search，并带权限、取消、凭据路径排除、结果限量和循环保护。旧 Provider 安全迁移为纯聊天，零/多工作区或非本地工作区不会启用工具。受控编辑与验证闭环仍待继续实现。
 
 ## 配置并运行聊天
 
 1. 在 Yisi AI Composer 底部点击 `Model`。
 2. 首次使用选择 `Add Provider`，可配置官方 OpenAI 或自定义 OpenAI-compatible 地址。
 3. API Key 可存入 VS Code SecretStorage，或只填写环境变量名；可信的本地兼容端点可选择无凭据。
-4. 选择模型后发送消息；生成期间发送按钮变为 Stop。
-5. 点击 Composer 左侧 `＋` 可显式附加当前工作区内的 UTF-8 文本文件；Session 只保存文件引用，原始文件内容仅用于当次请求。
+4. 明确选择 Provider 是否支持 OpenAI-compatible tool calling；不确定时选择 `Text chat only`。
+5. 选择模型后发送消息；生成期间发送按钮变为 Stop。启用 tools 且只有一个本地工作区时，模型可请求受限 Read/List/Search。
+6. 点击 Composer 左侧 `＋` 可显式附加当前工作区内的 UTF-8 文本文件；Session 只保存文件引用，原始文件内容仅用于当次请求。
 
 Provider 普通元数据与密钥分开保存。自定义本地端点允许 HTTP；官方 OpenAI 配置强制 HTTPS。当前自动化测试使用本地 fake HTTP/SSE 服务，不代表已使用用户的真实云账号完成联网验收。
 

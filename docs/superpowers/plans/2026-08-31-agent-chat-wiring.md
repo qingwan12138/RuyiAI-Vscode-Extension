@@ -50,8 +50,8 @@
 
 **Files:** `src/yisi/vscode/provider/providerSetupWizard.ts`, `src/yisi/index.ts`, `src/yisi/vscode/context/localAgentWorkspace.ts`, `test/local-agent-workspace.test.js`, `README.md`, `docs/12_ROADMAP_AND_DOD.md`
 
-- [ ] Add failing pure tests for exactly-one-local-workspace eligibility.
-- [ ] Implement the predicate and compose Node workspace tools/runner only when eligible.
-- [ ] Add the explicit wizard capability choice and pass it into provider creation.
-- [ ] Document delivered behavior and remaining write/confirmation gap.
+- [x] Add failing pure tests for exactly-one-local-workspace eligibility.
+- [x] Implement the predicate and compose Node workspace tools/runner only when eligible.
+- [x] Add the explicit wizard capability choice and pass it into provider creation.
+- [x] Document delivered behavior and remaining write/confirmation gap.
 - [ ] Run fresh full tests/check/compile/diff review, commit, merge main, rerun, delete branch, and continue controlled editing.

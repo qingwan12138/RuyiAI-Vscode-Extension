@@ -54,7 +54,13 @@ export class ProviderSetupWizard {
     const resolvedKey = credential.source === 'environment' ? this.environment[credential.variableName] : apiKey;
     const models = await this.discoverOrEnterModels(draft, resolvedKey);
     if (!models) return undefined;
-    const created = await this.configurations.create({ ...draft, models }, apiKey);
+    const toolCalling = await this.pickToolCalling();
+    if (toolCalling === undefined) return undefined;
+    const created = await this.configurations.create({
+      ...draft,
+      models,
+      capabilities: { toolCalling }
+    }, apiKey);
     const selection = { providerId: created.id, modelId: models[0] };
     await this.select(selection, true);
     void vscode.window.showInformationMessage(`Yisi AI provider “${created.name}” is ready with ${models.length} model(s).`);
@@ -132,6 +138,25 @@ export class ProviderSetupWizard {
       validateInput: value => /^[A-Za-z_][A-Za-z0-9_]*$/.test(value.trim()) ? undefined : 'Enter a valid environment variable name.'
     });
     return variableName === undefined ? undefined : { source: 'environment', variableName: variableName.trim() };
+  }
+
+  private async pickToolCalling(): Promise<boolean | undefined> {
+    const choice = await vscode.window.showQuickPick([
+      {
+        label: 'Enable read-only Agent tools',
+        detail: 'The model may request bounded workspace Read, List, and Search operations',
+        enabled: true
+      },
+      {
+        label: 'Text chat only',
+        detail: 'Use this when the provider or model does not support structured tool calling',
+        enabled: false
+      }
+    ], {
+      title: 'Yisi AI · Provider capability',
+      placeHolder: 'Does this provider support OpenAI-compatible tool calling?'
+    });
+    return choice?.enabled;
   }
 
   private async discoverOrEnterModels(input: ProviderConfigurationInput, apiKey?: string): Promise<string[] | undefined> {

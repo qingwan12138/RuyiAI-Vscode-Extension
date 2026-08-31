@@ -1,12 +1,12 @@
 import { SessionService } from '../session/sessionService';
 import { ProviderCatalog } from '../provider/providerCatalog';
-import { ChatMessage, LLMProvider } from '../../llm/types';
+import { AgentConversationMessage, LLMProvider } from '../../llm/types';
 import { FileContextReference, PermissionMode, parseContextReferences } from '../../domain/session';
 
 export interface AgentConversationRunner {
   run(
     provider: LLMProvider,
-    request: { model: string; messages: ChatMessage[] },
+    request: { model: string; messages: AgentConversationMessage[] },
     session: { sessionId: string; mode: PermissionMode },
     onDelta: (text: string) => void,
     signal: AbortSignal
@@ -51,7 +51,7 @@ export class ChatService {
       const priorItemCount = this.sessions.getActiveSession().items.length;
       await this.sessions.appendUserMessage(text, normalizedContexts.map(context => context.reference));
       const active = this.sessions.getActiveSession();
-      const messages: ChatMessage[] = [];
+      const messages: AgentConversationMessage[] = [];
       for (let index = 0; index < active.items.length; index += 1) {
         const item = active.items[index];
         if (item.type === 'userMessage') {

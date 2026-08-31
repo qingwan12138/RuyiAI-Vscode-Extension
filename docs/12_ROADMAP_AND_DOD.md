@@ -16,7 +16,7 @@ DoD：重启 VS Code 会话可恢复；secret 不落普通存储；fake provider
 - ProcessRunner + Diagnostics
 DoD：fixture repo 可完成“定位 → 修改 proposal → 用户批准 → 验证”的端到端任务。
 
-当前实现状态（2026-08-31，部分）：已实现受限 Read/List/Search、canonical workspace/symlink 边界、常见凭据文件的隐式搜索/Agent 读取排除、显式文件上下文附加、统一风险类型的 Permission Engine，以及结构化 ProcessRunner、VS Code Diagnostics 快照与顺序 ValidationEngine。进程执行使用 `shell:false` 的精确 argv，stdout/stderr 独立限量，支持超时/取消；Linux 使用受控进程组 SIGTERM → grace → SIGKILL。应用层已具备 OpenAI-compatible 结构化只读 Agent tool loop，覆盖工具 schema、逐次权限判定、结果回传、取消与循环保护；Provider capability 配置和 Session/UI 装配尚未接通。写入 proposal/批准与完整验证闭环仍未实现，因此 v0.2 DoD 尚未完成。
+当前实现状态（2026-08-31，部分）：已实现受限 Read/List/Search、canonical workspace/symlink 边界、常见凭据文件的隐式搜索/Agent 读取排除、显式文件上下文附加、统一风险类型的 Permission Engine，以及结构化 ProcessRunner、VS Code Diagnostics 快照与顺序 ValidationEngine。进程执行使用 `shell:false` 的精确 argv，stdout/stderr 独立限量，支持超时/取消；Linux 使用受控进程组 SIGTERM → grace → SIGKILL。新建 Provider 可显式启用 OpenAI-compatible 结构化只读 Agent tool loop；单一本地工作区的 Composer 已接通工具 schema、逐次权限判定、结果回传、取消与循环保护，旧配置迁移为关闭。写入 proposal/批准、权限确认 UI 与完整验证闭环仍未实现，因此 v0.2 DoD 尚未完成。
 
 ## v0.3 Reliable Editing
 - patch/edit/create/delete + stale write guard
