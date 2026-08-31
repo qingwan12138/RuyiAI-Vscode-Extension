@@ -1,7 +1,17 @@
 import { SessionService } from '../session/sessionService';
 import { ProviderCatalog } from '../provider/providerCatalog';
-import { ChatMessage } from '../../llm/types';
-import { FileContextReference, parseContextReferences } from '../../domain/session';
+import { ChatMessage, LLMProvider } from '../../llm/types';
+import { FileContextReference, PermissionMode, parseContextReferences } from '../../domain/session';
+
+export interface AgentConversationRunner {
+  run(
+    provider: LLMProvider,
+    request: { model: string; messages: ChatMessage[] },
+    session: { sessionId: string; mode: PermissionMode },
+    onDelta: (text: string) => void,
+    signal: AbortSignal
+  ): Promise<string>;
+}
 
 export interface ExplicitFileContext {
   reference: FileContextReference;
@@ -20,7 +30,8 @@ export class ChatService {
 
   constructor(
     private readonly sessions: SessionService,
-    private readonly providers: Pick<ProviderCatalog, 'resolve'>
+    private readonly providers: Pick<ProviderCatalog, 'resolve'>,
+    private readonly agentRunner?: AgentConversationRunner
   ) {}
 
   async send(
@@ -53,11 +64,26 @@ export class ChatService {
         }
       }
 
-      let response = '';
-      for await (const delta of provider.streamChat({ model: selected.modelId, messages }, signal)) {
-        signal.throwIfAborted();
-        response += delta.text;
-        onDelta(delta.text);
+      const capabilities = await provider.capabilities(selected.modelId);
+      let response: string;
+      if (capabilities.toolCalling) {
+        if (!this.agentRunner) {
+          throw new Error('Agent tools are unavailable for the current workspace. Use one local workspace folder or disable tool calling for this provider.');
+        }
+        response = await this.agentRunner.run(
+          provider,
+          { model: selected.modelId, messages },
+          { sessionId: active.id, mode: active.permissionMode },
+          onDelta,
+          signal
+        );
+      } else {
+        response = '';
+        for await (const delta of provider.streamChat({ model: selected.modelId, messages }, signal)) {
+          signal.throwIfAborted();
+          response += delta.text;
+          onDelta(delta.text);
+        }
       }
       if (!response) throw new Error('Provider returned an empty response.');
       await this.sessions.appendAssistantMessage(response, 'provider');

@@ -9,13 +9,13 @@ class MemoryRepository {
   async save(document) { this.document = structuredClone(document); }
 }
 
-async function harness(provider) {
+async function harness(provider, agentRunner) {
   const repository = new MemoryRepository();
   let id = 0;
   const sessions = new SessionService(repository, { now: () => ++id, createId: () => `id-${++id}` });
   await sessions.initialize('workspace', []);
   await sessions.setModelSelection({ providerId: 'provider', modelId: 'model' });
-  const chat = new ChatService(sessions, { resolve: async () => provider });
+  const chat = new ChatService(sessions, { resolve: async () => provider }, agentRunner);
   return { chat, sessions };
 }
 
@@ -101,5 +101,68 @@ test('marks an aborted run interrupted and rethrows cancellation', async () => {
   controller.abort();
 
   await assert.rejects(() => chat.send('cancel me', () => {}, controller.signal), error => error.name === 'AbortError');
+  assert.equal(sessions.getActiveSession().status, 'interrupted');
+});
+
+test('routes an explicitly capable provider through the agent runner and persists only final text', async () => {
+  const captured = {};
+  const provider = streamingProvider([]);
+  provider.capabilities = async () => ({ toolCalling: true, streaming: true });
+  provider.streamChat = async function* () { throw new Error('text chat must not run'); };
+  const agentRunner = {
+    async run(receivedProvider, request, session, onDelta, signal) {
+      Object.assign(captured, { receivedProvider, request, session, signal });
+      onDelta('Agent ');
+      onDelta('answer');
+      return 'Agent answer';
+    }
+  };
+  const { chat, sessions } = await harness(provider, agentRunner);
+  const deltas = [];
+  const signal = new AbortController().signal;
+
+  await chat.send('Inspect', delta => deltas.push(delta), signal);
+
+  assert.equal(captured.receivedProvider, provider);
+  assert.equal(captured.request.model, 'model');
+  assert.deepEqual(captured.request.messages, [{ role: 'user', content: 'Inspect' }]);
+  assert.equal(captured.session.sessionId, sessions.getActiveSession().id);
+  assert.equal(captured.session.mode, 'plan');
+  assert.equal(captured.signal, signal);
+  assert.deepEqual(deltas, ['Agent ', 'answer']);
+  assert.equal(sessions.getActiveSession().items.at(-1).text, 'Agent answer');
+  assert.equal(sessions.getActiveSession().items.at(-1).source, 'provider');
+});
+
+test('fails closed when tool calling is enabled but the agent runner is unavailable', async () => {
+  const provider = streamingProvider(['must not stream']);
+  provider.capabilities = async () => ({ toolCalling: true, streaming: true });
+  const { chat, sessions } = await harness(provider);
+
+  await assert.rejects(
+    chat.send('Inspect', () => {}, new AbortController().signal),
+    /Agent tools are unavailable/
+  );
+
+  assert.equal(sessions.getActiveSession().items.at(-1).type, 'userMessage');
+  assert.equal(sessions.getActiveSession().status, 'blocked');
+});
+
+test('agent runner cancellation preserves the existing interrupted status behavior', async () => {
+  const provider = streamingProvider([]);
+  provider.capabilities = async () => ({ toolCalling: true, streaming: true });
+  const controller = new AbortController();
+  const agentRunner = {
+    async run() {
+      controller.abort();
+      controller.signal.throwIfAborted();
+    }
+  };
+  const { chat, sessions } = await harness(provider, agentRunner);
+
+  await assert.rejects(
+    chat.send('Cancel agent', () => {}, controller.signal),
+    error => error && error.name === 'AbortError'
+  );
   assert.equal(sessions.getActiveSession().status, 'interrupted');
 });

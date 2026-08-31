@@ -41,10 +41,10 @@
 
 **Files:** `src/yisi/application/chat/chatService.ts`, `test/chat-service.test.js`
 
-- [ ] Add failing tests proving disabled→streamChat, enabled→Agent runner, final response persistence, missing runner failure, loop block, and cancellation status.
-- [ ] Run focused RED.
-- [ ] Implement per-turn capability selection while preserving one durable user message and one final assistant message.
-- [ ] Run full tests/typecheck and commit `feat: route capable chat turns through agent`.
+- [x] Add failing tests proving disabled→streamChat, enabled→Agent runner, final response persistence, missing runner failure, loop block, and cancellation status.
+- [x] Run focused RED.
+- [x] Implement per-turn capability selection while preserving one durable user message and one final assistant message.
+- [x] Run full tests/typecheck and commit `feat: route capable chat turns through agent`.
 
 ### Task 4: Wizard and Extension Host composition
 
