@@ -49,6 +49,22 @@ test('atomically replaces one text occurrence with a stale hash guard', async t 
   assert.equal(await fs.readFile(path.join(root, 'README.md'), 'utf8'), 'updated heading\r\nsecond line\r\n');
 });
 
+test('preserves the existing file mode across replacement', async t => {
+  const { root, adapter } = await fixture(t);
+  const target = path.join(root, 'script.sh');
+  await fs.writeFile(target, '#!/bin/sh\necho before\n');
+  await fs.chmod(target, 0o755);
+  const modeBefore = (await fs.stat(target)).mode & 0o7777;
+  const before = await adapter.readFile('script.sh');
+
+  await adapter.replaceText({
+    path: 'script.sh', expectedSha256: before.sha256,
+    oldText: 'echo before', newText: 'echo after'
+  });
+
+  assert.equal((await fs.stat(target)).mode & 0o7777, modeBefore);
+});
+
 test('rejects stale, missing, duplicate, sensitive, and cancelled replacements without mutation', async t => {
   const { root, adapter } = await fixture(t);
   const before = await adapter.readFile('README.md');

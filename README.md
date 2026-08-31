@@ -17,7 +17,7 @@ Yisi AI 是面向 RuyiSDK / RISC-V 开发场景的 VS Code Coding Agent。最终
 
 当前 Webview 已经不是工程占位页。F5 后打开 Yisi AI，会直接看到 Ruyi 品牌欢迎页、快捷任务和底部 Composer。
 
-当前 Session 元数据、用户消息和已完成的 Provider 回复会持久化到 VS Code 全局扩展存储。历史面板支持切换、重命名和确认删除，重启 Webview/扩展后会恢复当前 Session。Composer 已接通 OpenAI 与 OpenAI-compatible Chat Completions 流式接口；Agent Runtime 与工具调用仍未连接，界面不会伪造 Agent 成功结果。
+当前 Session 元数据、用户消息和已完成的 Provider 回复会持久化到 VS Code 全局扩展存储。历史面板支持切换、重命名和确认删除，重启 Webview/扩展后会恢复当前 Session。Composer 已接通 OpenAI 与 OpenAI-compatible Chat Completions 流式接口；显式启用结构化 tool calling 后可运行受限 Agent 工具，界面不会伪造 Agent 成功结果。
 
 ## UI 品牌方向
 
@@ -89,7 +89,7 @@ Remote-SSH 不作为当前 v1.0 必须交付能力，后续需要时再单独增
 
 ## 当前阶段
 
-本包已完成 v0.1 Foundation / Chat Vertical Slice 的代码基线，并进入 v0.2 Coding Agent MVP，但不声称已完成 Coding Agent。现已具备 Session/模型持久化、Provider 设置、安全凭据、SSE 流式聊天、Stop、受工作区边界保护的 Read/List/Search 工具、类型化 Permission Engine、显式 `@file` 内容附加，以及结构化 ProcessRunner/ValidationEngine。ProcessRunner 使用精确 argv、独立输出限量、超时/取消和 Linux 进程组终止；VS Code Diagnostics 已有工作区限定的快照适配器和验证证据。新建 Provider 时可显式启用 OpenAI-compatible 结构化只读 Agent tools；在单一本地工作区内，当前 Composer 会执行 Read/List/Search，并带权限、取消、凭据路径排除、结果限量和循环保护。旧 Provider 安全迁移为纯聊天，零/多工作区或非本地工作区不会启用工具。受控编辑与验证闭环仍待继续实现。
+本包已完成 v0.1 Foundation / Chat Vertical Slice 的代码基线，并进入 v0.2 Coding Agent MVP，但不声称已完成 Coding Agent。现已具备 Session/模型/权限持久化、Provider 设置、安全凭据、SSE 流式聊天、Stop、受工作区边界保护的 Read/List/Search、唯一文本替换工具、类型化 Permission Engine、显式 `@file` 内容附加，以及结构化 ProcessRunner/ValidationEngine。ProcessRunner 使用精确 argv、独立输出限量、超时/取消和 Linux 进程组终止；VS Code Diagnostics 已有工作区限定的快照适配器和验证证据。新建 Provider 时可显式启用 OpenAI-compatible 结构化 Agent tools；在单一本地工作区内，当前 Composer 可读取并搜索文件，也可用读取结果的 SHA-256 做 stale guard 后替换一个唯一文本片段。Plan 拒绝写入，Manual 使用 VS Code 原生确认，Accept Edits/Auto 按权限策略允许这一有界写入。旧 Provider 安全迁移为纯聊天，零/多工作区或非本地工作区不会启用工具。创建/删除/重命名、命令执行和编辑后自动验证闭环仍待继续实现。
 
 ## 配置并运行聊天
 
@@ -97,7 +97,7 @@ Remote-SSH 不作为当前 v1.0 必须交付能力，后续需要时再单独增
 2. 首次使用选择 `Add Provider`，可配置官方 OpenAI 或自定义 OpenAI-compatible 地址。
 3. API Key 可存入 VS Code SecretStorage，或只填写环境变量名；可信的本地兼容端点可选择无凭据。
 4. 明确选择 Provider 是否支持 OpenAI-compatible tool calling；不确定时选择 `Text chat only`。
-5. 选择模型后发送消息；生成期间发送按钮变为 Stop。启用 tools 且只有一个本地工作区时，模型可请求受限 Read/List/Search。
+5. 选择模型和 Session 权限模式后发送消息；生成期间发送按钮变为 Stop。启用 tools 且只有一个本地工作区时，模型可请求 Read/List/Search；非 Plan 模式还可按权限策略请求一次唯一文本替换。
 6. 点击 Composer 左侧 `＋` 可显式附加当前工作区内的 UTF-8 文本文件；Session 只保存文件引用，原始文件内容仅用于当次请求。
 
 Provider 普通元数据与密钥分开保存。自定义本地端点允许 HTTP；官方 OpenAI 配置强制 HTTPS。当前自动化测试使用本地 fake HTTP/SSE 服务，不代表已使用用户的真实云账号完成联网验收。
@@ -110,4 +110,4 @@ npm run check
 npm run compile
 ```
 
-然后在 VS Code 中按 `F5`，启动 `Run Yisi AI Extension`。当前 starter 验证 Extension manifest、Webview、Session、Provider 配置和流式聊天链路；工具执行与自主 Agent 循环尚未实现。详细见 `docs/17_RUNNABLE_BASELINE.md`。
+然后在 VS Code 中按 `F5`，启动 `Run Yisi AI Extension`。当前 starter 验证 Extension manifest、Webview、Session、Provider 配置、流式聊天和有界 Agent 工具链路。详细见 `docs/17_RUNNABLE_BASELINE.md`。

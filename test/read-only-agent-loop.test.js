@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { ReadOnlyAgentLoop } = require('../dist/yisi/application/agent/readOnlyAgentLoop');
+const { AgentToolLoop, ReadOnlyAgentLoop } = require('../dist/yisi/application/agent/readOnlyAgentLoop');
 const { ToolRegistry } = require('../dist/yisi/application/agent/toolRegistry');
 const { PermissionEngine } = require('../dist/yisi/permissions/permissionEngine');
 
@@ -113,6 +113,42 @@ test('blocks unknown tools and permission confirmation without executing', async
   assert.equal(executed, false);
 });
 
+test('executes a confirmed workspace edit and fails closed when approval is rejected', async () => {
+  const approvals = [];
+  const executions = [];
+  const edit = tool('replace_text', async input => { executions.push(input); return { replacements: 1 }; });
+  edit.risk = 'workspaceWrite';
+  edit.mutatesWorkspace = true;
+  const signal = new AbortController().signal;
+  const editCall = call('edit-1', 'replace_text', { path: 'src/a.ts' });
+  const accepted = new AgentToolLoop(
+    provider([[editCall], [text('edited')]]),
+    new ToolRegistry([edit]),
+    new PermissionEngine(),
+    {},
+    { confirm: async (request, receivedSignal) => { approvals.push([request, receivedSignal]); return true; } }
+  );
+
+  const acceptedResult = await accepted.run(request, context(signal), 'manual', () => {}, signal);
+  assert.equal(acceptedResult.status, 'completed');
+  assert.equal(executions.length, 1);
+  assert.equal(approvals.length, 1);
+  assert.equal(approvals[0][0].toolId, 'replace_text');
+  assert.equal(approvals[0][1], signal);
+
+  const rejected = new AgentToolLoop(
+    provider([[editCall]]),
+    new ToolRegistry([edit]),
+    new PermissionEngine(),
+    {},
+    { confirm: async () => false }
+  );
+  const rejectedResult = await rejected.run(request, context(signal), 'manual', () => {}, signal);
+  assert.equal(rejectedResult.status, 'blocked');
+  assert.match(rejectedResult.reason, /declined/i);
+  assert.equal(executions.length, 1);
+});
+
 test('fails closed when a non-read-only tool is accidentally registered', async () => {
   let executed = false;
   const unsafe = tool('run_command', async () => { executed = true; });
@@ -127,7 +163,7 @@ test('fails closed when a non-read-only tool is accidentally registered', async 
   const result = await loop.run(request, context(signal), 'fullAccess', () => {}, signal);
 
   assert.equal(result.status, 'blocked');
-  assert.match(result.reason, /read-only Agent scope/i);
+  assert.match(result.reason, /Agent tool scope/i);
   assert.equal(executed, false);
 });
 

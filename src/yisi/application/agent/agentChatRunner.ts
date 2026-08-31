@@ -1,7 +1,7 @@
 import { PermissionMode } from '../../domain/session';
 import { AgentRequest, AgentStreamEvent } from '../../llm/types';
 import { PermissionEngine } from '../../permissions/permissionEngine';
-import { AgentLoopRequest, ReadOnlyAgentLoop } from './readOnlyAgentLoop';
+import { AgentLoopRequest, AgentToolLoop, ToolConfirmationPort } from './readOnlyAgentLoop';
 import { ToolRegistry } from './toolRegistry';
 
 export class AgentCapabilityError extends Error {
@@ -31,7 +31,8 @@ export class AgentChatRunner {
   constructor(
     private readonly registry: ToolRegistry,
     private readonly permissions: Pick<PermissionEngine, 'evaluate'>,
-    private readonly workspaceUri: string
+    private readonly workspaceUri: string,
+    private readonly confirmations?: ToolConfirmationPort
   ) {}
 
   async run(
@@ -42,10 +43,12 @@ export class AgentChatRunner {
     signal: AbortSignal
   ): Promise<string> {
     if (!provider.streamAgent) throw new AgentCapabilityError();
-    const loop = new ReadOnlyAgentLoop(
+    const loop = new AgentToolLoop(
       { streamAgent: provider.streamAgent.bind(provider) },
       this.registry,
-      this.permissions
+      this.permissions,
+      {},
+      this.confirmations
     );
     const result = await loop.run(request, {
       sessionId: session.sessionId,

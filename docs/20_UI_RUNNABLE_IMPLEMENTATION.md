@@ -46,7 +46,7 @@ This is still not the final visual design, but it is now an executable UI baseli
 
 ## Deliberately not implemented yet
 
-- real permission selector
+- richer per-action permission/diff review surface (the real Session permission selector and Manual native edit confirmation are implemented)
 - @folder/@symbol picker and inline `@` search
 - Agent tool cards
 - diff UI
@@ -54,7 +54,7 @@ This is still not the final visual design, but it is now an executable UI baseli
 - terminal UI
 - Ruyi environment cards
 
-These must be added according to the architecture milestones instead of faked in the UI layer. The current provider path is real chat transport, but it is not yet an Agent loop and cannot read files, run commands, or edit a workspace.
+These must be added according to the architecture milestones instead of faked in the UI layer. The current provider path is real chat transport and can run bounded Read/List/Search plus stale-safe unique text replacement when tool calling is explicitly enabled. It still cannot run commands, create/delete files, show a complete diff card, or automatically validate an edit.
 
 Automated transport verification uses a local fake OpenAI-compatible HTTP/SSE server. A real user cloud credential was not used during repository verification.
 

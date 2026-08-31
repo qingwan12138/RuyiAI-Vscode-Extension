@@ -121,6 +121,7 @@ export class NodeWorkspaceFileSystem implements FileSystemPort, WorkspaceWritePo
       await handle.sync();
       await handle.close();
       handle = undefined;
+      await fs.chmod(temporary, stat.mode & 0o7777);
       signal?.throwIfAborted();
       await fs.rename(temporary, target);
     } finally {

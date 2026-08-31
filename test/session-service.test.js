@@ -69,6 +69,16 @@ test('renames a session with trimmed text and marks the title manual', async () 
   await assert.rejects(() => service.renameSession(session.id, '   '), SessionInputError);
 });
 
+test('persists only known permission modes for the active session', async () => {
+  const { service } = createHarness();
+  await service.initialize('workspace-a', []);
+
+  await service.setPermissionMode('manual');
+  assert.equal(service.getActiveSession().permissionMode, 'manual');
+  await assert.rejects(() => service.setPermissionMode('unrestricted'), SessionInputError);
+  assert.equal(service.getActiveSession().permissionMode, 'manual');
+});
+
 test('rejects unknown session ids without changing active state', async () => {
   const { service } = createHarness();
   await service.initialize('workspace-a', []);

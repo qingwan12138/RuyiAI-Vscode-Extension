@@ -17,6 +17,8 @@ import { WorkspaceContextService, createWorkspaceContextTools } from './applicat
 import { ToolRegistry } from './application/agent/toolRegistry';
 import { PermissionEngine } from './permissions/permissionEngine';
 import { AgentChatRunner } from './application/agent/agentChatRunner';
+import { WorkspaceEditService, createWorkspaceEditTool } from './application/edit/workspaceEditService';
+import { VsCodeToolConfirmation } from './vscode/agent/vsCodeToolConfirmation';
 
 const LEGACY_STORAGE_KEY = 'yisiAI.sessions.v1';
 
@@ -75,8 +77,16 @@ async function createAgentRunner(): Promise<AgentChatRunner | undefined> {
   if (!workspace) return undefined;
   try {
     const fileSystem = await NodeWorkspaceFileSystem.create(workspace.fsPath);
-    const tools = createWorkspaceContextTools(new WorkspaceContextService(fileSystem));
-    return new AgentChatRunner(new ToolRegistry(tools), new PermissionEngine(), workspace.uri);
+    const tools = [
+      ...createWorkspaceContextTools(new WorkspaceContextService(fileSystem)),
+      createWorkspaceEditTool(new WorkspaceEditService(fileSystem))
+    ];
+    return new AgentChatRunner(
+      new ToolRegistry(tools),
+      new PermissionEngine(),
+      workspace.uri,
+      new VsCodeToolConfirmation()
+    );
   } catch {
     console.warn('[Yisi AI] Local Agent workspace initialization is unavailable.');
     return undefined;

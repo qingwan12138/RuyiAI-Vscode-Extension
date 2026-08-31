@@ -112,9 +112,8 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
         return;
 
       case 'selectPermission':
-        await vscode.window.showInformationMessage(
-          'Permission mode UI is connected. The full selector will be implemented with the Permission Engine milestone.'
-        );
+        if (!this.requireIdle()) return;
+        await this.selectPermissionMode();
         return;
 
       case 'addContext':
@@ -164,6 +163,27 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
     next.push(context);
     this.pendingContexts.set(sessionId, next.slice(-4));
     await this.publishContextState();
+  }
+
+  private async selectPermissionMode(): Promise<void> {
+    const current = this.sessions.getActiveSession().permissionMode;
+    const options = [
+      { label: 'Plan', description: 'Read and analyze only', mode: 'plan' as const },
+      { label: 'Manual', description: 'Ask before every workspace edit', mode: 'manual' as const },
+      { label: 'Accept Edits', description: 'Apply bounded file edits automatically', mode: 'acceptEdits' as const },
+      { label: 'Auto', description: 'Apply bounded edits; privileged actions still require approval', mode: 'auto' as const },
+      { label: 'Full Access', description: 'Broad permission mode; hard safety confirmations remain', mode: 'fullAccess' as const }
+    ];
+    const selected = await vscode.window.showQuickPick(options.map(option => ({
+      ...option,
+      picked: option.mode === current
+    })), {
+      title: 'Yisi AI permission mode',
+      placeHolder: 'Choose how Yisi may act in this session'
+    });
+    if (!selected) return;
+    await this.sessions.setPermissionMode(selected.mode);
+    await this.publishState();
   }
 
   private requireIdle(): boolean {

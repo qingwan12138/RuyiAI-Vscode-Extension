@@ -593,6 +593,7 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     const historyList = document.getElementById('historyList');
     const modelButton = document.getElementById('modelButton');
     const modelLabel = modelButton.querySelector('.control-label');
+    const permissionLabel = document.getElementById('permissionButton').querySelector('.control-label');
     const contextChips = document.getElementById('contextChips');
     let sessionSummaries = [];
     let activeSession;
@@ -683,6 +684,10 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       modelLabel.textContent = activeSession.model && activeSession.model.modelId
         ? activeSession.model.modelId
         : 'Model';
+      const permissionLabels = {
+        plan: 'Plan', manual: 'Manual', acceptEdits: 'Accept Edits', auto: 'Auto', fullAccess: 'Full Access'
+      };
+      permissionLabel.textContent = permissionLabels[activeSession.permissionMode] || 'Plan';
       conversation.replaceChildren();
       transientAssistant = undefined;
       streamedText = '';

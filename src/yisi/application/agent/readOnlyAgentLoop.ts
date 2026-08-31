@@ -39,6 +39,17 @@ interface AgentToolProvider {
   streamAgent(request: AgentRequest, signal?: AbortSignal): AsyncIterable<AgentStreamEvent>;
 }
 
+export interface ToolConfirmationRequest {
+  callId: string;
+  toolId: string;
+  input: Record<string, unknown>;
+  reason: string;
+}
+
+export interface ToolConfirmationPort {
+  confirm(request: ToolConfirmationRequest, signal: AbortSignal): Promise<boolean>;
+}
+
 const DEFAULT_OPTIONS: ReadOnlyAgentLoopOptions = {
   maxRounds: 8,
   maxCallsPerRound: 16,
@@ -46,14 +57,15 @@ const DEFAULT_OPTIONS: ReadOnlyAgentLoopOptions = {
   maxErrorCharacters: 240
 };
 
-export class ReadOnlyAgentLoop {
+export class AgentToolLoop {
   private readonly options: ReadOnlyAgentLoopOptions;
 
   constructor(
     private readonly provider: AgentToolProvider,
     private readonly registry: ToolRegistry,
     private readonly permissions: Pick<PermissionEngine, 'evaluate'>,
-    options: Partial<ReadOnlyAgentLoopOptions> = {}
+    options: Partial<ReadOnlyAgentLoopOptions> = {},
+    private readonly confirmations?: ToolConfirmationPort
   ) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
     for (const value of Object.values(this.options)) {
@@ -113,8 +125,10 @@ export class ReadOnlyAgentLoop {
 
         const tool = this.registry.get(call.name);
         if (!tool) return blocked(`Unknown tool: ${bounded(call.name, 128)}`, executions);
-        if (tool.risk !== 'readOnly' || tool.mutatesWorkspace) {
-          return blocked('Tool is outside the read-only Agent scope.', executions);
+        const isRead = tool.risk === 'readOnly' && !tool.mutatesWorkspace;
+        const isWorkspaceWrite = tool.risk === 'workspaceWrite' && tool.mutatesWorkspace;
+        if (!isRead && !isWorkspaceWrite) {
+          return blocked('Tool is outside the bounded Agent tool scope.', executions);
         }
         const decision = this.permissions.evaluate(mode, {
           risk: tool.risk,
@@ -124,7 +138,23 @@ export class ReadOnlyAgentLoop {
           return blocked(bounded(decision.reason, this.options.maxErrorCharacters), executions);
         }
         if (decision.needsConfirmation || decision.outcome === 'confirm') {
-          return blocked(bounded(decision.reason, this.options.maxErrorCharacters), executions);
+          if (!this.confirmations) {
+            return blocked(bounded(decision.reason, this.options.maxErrorCharacters), executions);
+          }
+          let approved: boolean;
+          try {
+            approved = await this.confirmations.confirm({
+              callId: call.id,
+              toolId: tool.id,
+              input: structuredClone(call.input),
+              reason: bounded(decision.reason, this.options.maxErrorCharacters)
+            }, signal);
+            signal.throwIfAborted();
+          } catch (error) {
+            if (signal.aborted || (error instanceof Error && error.name === 'AbortError')) throw error;
+            return blocked('Tool approval could not be completed.', executions);
+          }
+          if (!approved) return blocked('User declined the proposed workspace action.', executions);
         }
 
         let content: string;
@@ -152,6 +182,9 @@ export class ReadOnlyAgentLoop {
     return blocked('Agent round budget exhausted.', executions);
   }
 }
+
+// Compatibility export while callers migrate from the initial read-only slice.
+export { AgentToolLoop as ReadOnlyAgentLoop };
 
 function blocked(reason: string, executions: AgentToolExecutionEvidence[]): AgentLoopResult {
   return { status: 'blocked', finalText: '', executions: [...executions], reason };

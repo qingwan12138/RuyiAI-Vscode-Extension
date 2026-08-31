@@ -201,6 +201,15 @@ export class SessionService {
     }));
   }
 
+  setPermissionMode(mode: PermissionMode): Promise<void> {
+    return this.enqueue(() => this.mutate(workspace => {
+      if (!isPermissionMode(mode)) throw new SessionInputError('Permission mode is invalid.');
+      const session = this.activeSession(workspace.sessions, workspace.activeSessionId);
+      session.permissionMode = mode;
+      session.updatedAt = this.now();
+    }));
+  }
+
   setStatus(status: YisiSession['status']): Promise<void> {
     return this.enqueue(() => this.mutate(workspace => {
       const session = this.activeSession(workspace.sessions, workspace.activeSessionId);
@@ -307,4 +316,12 @@ function mostRecentlyUpdated(sessions: YisiSession[]): YisiSession {
   return sessions.reduce((latest, session) => (
     session.updatedAt > latest.updatedAt ? session : latest
   ));
+}
+
+function isPermissionMode(value: unknown): value is PermissionMode {
+  return value === 'plan'
+    || value === 'manual'
+    || value === 'acceptEdits'
+    || value === 'auto'
+    || value === 'fullAccess';
 }
