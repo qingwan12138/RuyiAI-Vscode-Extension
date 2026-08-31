@@ -54,4 +54,4 @@
 - [x] Implement the predicate and compose Node workspace tools/runner only when eligible.
 - [x] Add the explicit wizard capability choice and pass it into provider creation.
 - [x] Document delivered behavior and remaining write/confirmation gap.
-- [ ] Run fresh full tests/check/compile/diff review, commit, merge main, rerun, delete branch, and continue controlled editing.
+- [x] Run fresh full tests/check/compile/diff review, commit, merge main, rerun, delete branch, and continue controlled editing.
