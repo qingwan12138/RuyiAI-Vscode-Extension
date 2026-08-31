@@ -12,6 +12,11 @@ export interface ProviderConfigurationInput {
   baseUrl: string;
   credential: CredentialSource;
   models: string[];
+  capabilities: ProviderCapabilities;
+}
+
+export interface ProviderCapabilities {
+  toolCalling: boolean;
 }
 
 export interface ProviderConfiguration extends ProviderConfigurationInput {
@@ -21,7 +26,7 @@ export interface ProviderConfiguration extends ProviderConfigurationInput {
 }
 
 export interface ProviderConfigurationDocument {
-  schemaVersion: 1;
+  schemaVersion: 2;
   configurations: ProviderConfiguration[];
 }
 
@@ -47,16 +52,19 @@ export function createProviderConfiguration(
   const models = [...new Set(input.models.map(model => model.trim()).filter(Boolean))];
   if (models.length === 0) throw invalid('At least one model is required.');
   if (!Number.isFinite(now) || now < 0) throw invalid('Provider timestamp is invalid.');
-  return { id, kind: input.kind, name, baseUrl, credential, models, createdAt: now, updatedAt: now };
+  const capabilities = parseCapabilities(input.capabilities);
+  return { id, kind: input.kind, name, baseUrl, credential, models, capabilities, createdAt: now, updatedAt: now };
 }
 
 export function parseProviderConfigurationDocument(value: unknown): ProviderConfigurationDocument {
-  if (!isRecord(value) || !hasKeys(value, ['schemaVersion', 'configurations']) || value.schemaVersion !== 1 || !Array.isArray(value.configurations)) {
+  if (!isRecord(value) || !hasKeys(value, ['schemaVersion', 'configurations']) || !Array.isArray(value.configurations)) {
     throw invalid('Malformed provider configuration document.');
   }
+  if (value.schemaVersion !== 1 && value.schemaVersion !== 2) throw invalid('Malformed provider configuration document.');
+  const legacy = value.schemaVersion === 1;
   return {
-    schemaVersion: 1,
-    configurations: value.configurations.map(parseConfiguration)
+    schemaVersion: 2,
+    configurations: value.configurations.map(item => parseConfiguration(item, legacy))
   };
 }
 
@@ -68,8 +76,11 @@ export function parseModelSelection(value: unknown): SessionModelSelection | und
   return { providerId: value.providerId, modelId: value.modelId };
 }
 
-function parseConfiguration(value: unknown): ProviderConfiguration {
-  if (!isRecord(value) || !hasKeys(value, ['id', 'kind', 'name', 'baseUrl', 'credential', 'models', 'createdAt', 'updatedAt'])) {
+function parseConfiguration(value: unknown, legacy: boolean): ProviderConfiguration {
+  const keys = legacy
+    ? ['id', 'kind', 'name', 'baseUrl', 'credential', 'models', 'createdAt', 'updatedAt']
+    : ['id', 'kind', 'name', 'baseUrl', 'credential', 'models', 'capabilities', 'createdAt', 'updatedAt'];
+  if (!isRecord(value) || !hasKeys(value, keys)) {
     throw invalid('Malformed provider configuration.');
   }
   if (
@@ -89,11 +100,19 @@ function parseConfiguration(value: unknown): ProviderConfiguration {
     name: value.name,
     baseUrl: value.baseUrl,
     credential: parseCredential(value.credential),
-    models: value.models
+    models: value.models,
+    capabilities: legacy ? { toolCalling: false } : parseCapabilities(value.capabilities)
   });
   if (!Number.isFinite(value.updatedAt) || value.updatedAt < configuration.createdAt) throw invalid('Provider timestamp is invalid.');
   configuration.updatedAt = value.updatedAt;
   return configuration;
+}
+
+function parseCapabilities(value: unknown): ProviderCapabilities {
+  if (!isRecord(value) || !hasKeys(value, ['toolCalling']) || typeof value.toolCalling !== 'boolean') {
+    throw invalid('Malformed provider capabilities.');
+  }
+  return { toolCalling: value.toolCalling };
 }
 
 function parseCredential(value: unknown): CredentialSource {

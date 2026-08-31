@@ -23,10 +23,10 @@
 
 **Files:** `src/yisi/domain/providerConfiguration.ts`, `test/provider-configuration.test.js`, `test/provider-catalog.test.js`
 
-- [ ] Add failing tests for v1 migration to disabled, exact v2 capability parsing, create/persist cloning, and secret-looking/unknown capability rejection.
-- [ ] Run focused RED and confirm schema/capability failures.
-- [ ] Implement schema v2 plus v1 migration; update test inputs and factory behavior without changing credential storage.
-- [ ] Run full tests/typecheck and commit `feat: persist provider tool capability`.
+- [x] Add failing tests for v1 migration to disabled, exact v2 capability parsing, create/persist cloning, and secret-looking/unknown capability rejection.
+- [x] Run focused RED and confirm schema/capability failures.
+- [x] Implement schema v2 plus v1 migration; update test inputs and factory behavior without changing credential storage.
+- [x] Run full tests/typecheck and commit `feat: persist provider tool capability`.
 
 ### Task 2: Provider reporting and AgentChatRunner
 

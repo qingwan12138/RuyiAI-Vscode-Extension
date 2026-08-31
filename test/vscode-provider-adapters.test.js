@@ -40,6 +40,14 @@ function document() {
   };
 }
 
+function migratedDocument() {
+  const legacy = document();
+  return {
+    schemaVersion: 2,
+    configurations: [{ ...legacy.configurations[0], capabilities: { toolCalling: false } }]
+  };
+}
+
 test('stores provider metadata globally and model defaults per workspace', async () => {
   const globalState = new MemoryMemento();
   const workspaceState = new MemoryMemento();
@@ -48,10 +56,10 @@ test('stores provider metadata globally and model defaults per workspace', async
   await repository.saveConfigurations(document());
   await repository.saveWorkspaceDefault({ providerId: 'provider-1', modelId: 'model-a' });
 
-  assert.deepEqual(globalState.get(PROVIDER_CONFIGURATIONS_KEY), document());
+  assert.deepEqual(globalState.get(PROVIDER_CONFIGURATIONS_KEY), migratedDocument());
   assert.equal(globalState.get(WORKSPACE_DEFAULT_KEY), undefined);
   assert.deepEqual(workspaceState.get(WORKSPACE_DEFAULT_KEY), { providerId: 'provider-1', modelId: 'model-a' });
-  assert.deepEqual(await repository.loadConfigurations(), document());
+  assert.deepEqual(await repository.loadConfigurations(), migratedDocument());
   assert.deepEqual(await repository.loadWorkspaceDefault(), { providerId: 'provider-1', modelId: 'model-a' });
 });
 

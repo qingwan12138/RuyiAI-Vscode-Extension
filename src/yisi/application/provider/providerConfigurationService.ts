@@ -10,7 +10,7 @@ import { ProviderConfigurationRepository } from './providerConfigurationReposito
 import { SecretStore } from './secretStore';
 
 export class ProviderConfigurationService {
-  private document: ProviderConfigurationDocument = { schemaVersion: 1, configurations: [] };
+  private document: ProviderConfigurationDocument = { schemaVersion: 2, configurations: [] };
   private workspaceDefault?: SessionModelSelection;
 
   constructor(
@@ -21,7 +21,7 @@ export class ProviderConfigurationService {
 
   async initialize(): Promise<void> {
     const loaded = await this.repository.loadConfigurations();
-    this.document = loaded ? parseProviderConfigurationDocument(loaded) : { schemaVersion: 1, configurations: [] };
+    this.document = loaded ? parseProviderConfigurationDocument(loaded) : { schemaVersion: 2, configurations: [] };
     const selection = await this.repository.loadWorkspaceDefault();
     this.workspaceDefault = selection && this.isAvailable(selection) ? { ...selection } : undefined;
   }

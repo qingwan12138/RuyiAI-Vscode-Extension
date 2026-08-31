@@ -47,7 +47,10 @@ export class ProviderSetupWizard {
       if (apiKey === undefined) return undefined;
     }
 
-    const draft: ProviderConfigurationInput = { kind, name, baseUrl, credential, models: ['discovery-placeholder'] };
+    const draft: ProviderConfigurationInput = {
+      kind, name, baseUrl, credential, models: ['discovery-placeholder'],
+      capabilities: { toolCalling: false }
+    };
     const resolvedKey = credential.source === 'environment' ? this.environment[credential.variableName] : apiKey;
     const models = await this.discoverOrEnterModels(draft, resolvedKey);
     if (!models) return undefined;

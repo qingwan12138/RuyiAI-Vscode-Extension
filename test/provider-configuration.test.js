@@ -32,6 +32,7 @@ function input(overrides = {}) {
     baseUrl: 'http://127.0.0.1:8080/v1/',
     credential: { source: 'none' },
     models: ['local-model'],
+    capabilities: { toolCalling: false },
     ...overrides
   };
 }
@@ -103,4 +104,44 @@ test('removing a provider clears its workspace default and stored secret', async
 
   assert.equal(await secrets.get(providerSecretKey(created.id)), undefined);
   assert.equal(service.getWorkspaceDefault(), undefined);
+});
+
+test('migrates exact schema v1 configurations to disabled tool calling', () => {
+  const legacy = {
+    schemaVersion: 1,
+    configurations: [{
+      id: 'legacy',
+      kind: 'openaiCompatible',
+      name: 'Legacy',
+      baseUrl: 'http://127.0.0.1:8080/v1',
+      credential: { source: 'none' },
+      models: ['model'],
+      createdAt: 1,
+      updatedAt: 2
+    }]
+  };
+
+  const migrated = parseProviderConfigurationDocument(legacy);
+
+  assert.equal(migrated.schemaVersion, 2);
+  assert.deepEqual(migrated.configurations[0].capabilities, { toolCalling: false });
+});
+
+test('creates and parses exact schema v2 tool capabilities', () => {
+  const created = createProviderConfiguration('p1', 10, input({ capabilities: { toolCalling: true } }));
+  assert.deepEqual(created.capabilities, { toolCalling: true });
+
+  const parsed = parseProviderConfigurationDocument({ schemaVersion: 2, configurations: [created] });
+  assert.deepEqual(parsed, { schemaVersion: 2, configurations: [created] });
+
+  for (const capabilities of [
+    {},
+    { toolCalling: 'yes' },
+    { toolCalling: true, apiKey: 'secret' }
+  ]) {
+    assert.throws(
+      () => createProviderConfiguration('p1', 10, input({ capabilities })),
+      ProviderConfigurationSchemaError
+    );
+  }
 });
