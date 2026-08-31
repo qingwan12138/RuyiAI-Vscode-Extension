@@ -20,6 +20,7 @@ export interface OpenAICompatibleProviderOptions {
   baseUrl: string;
   apiKey?: string;
   fetchImpl?: FetchImplementation;
+  toolCalling?: boolean;
 }
 
 export class ProviderTransportError extends Error {
@@ -64,7 +65,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
   async capabilities(_model: string): Promise<ModelCapabilities> {
     return {
-      toolCalling: false,
+      toolCalling: this.options.toolCalling ?? false,
       streaming: true,
       vision: false,
       reasoning: false,

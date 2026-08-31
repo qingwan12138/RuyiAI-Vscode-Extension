@@ -36,6 +36,20 @@ test('discovers and normalizes model ids', async () => {
   assert.deepEqual(await provider.listModels(), ['a', 'b']);
 });
 
+test('reports explicitly configured tool-calling capability', async () => {
+  const enabled = new OpenAICompatibleProvider({
+    id: 'enabled', baseUrl: 'https://example.com/v1', toolCalling: true,
+    fetchImpl: async () => { throw new Error('not used'); }
+  });
+  const disabled = new OpenAICompatibleProvider({
+    id: 'disabled', baseUrl: 'https://example.com/v1',
+    fetchImpl: async () => { throw new Error('not used'); }
+  });
+
+  assert.equal((await enabled.capabilities('model')).toolCalling, true);
+  assert.equal((await disabled.capabilities('model')).toolCalling, false);
+});
+
 test('streams text deltas and sends the compatible request shape', async () => {
   let request;
   const provider = new OpenAICompatibleProvider({

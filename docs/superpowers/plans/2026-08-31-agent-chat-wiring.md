@@ -32,10 +32,10 @@
 
 **Files:** `src/yisi/infrastructure/llm/openAICompatibleProvider.ts`, `src/yisi/application/agent/agentChatRunner.ts`, `test/openai-compatible-provider.test.js`, `test/agent-chat-runner.test.js`
 
-- [ ] Add failing tests for capability reporting, missing `streamAgent`, loop completion, blocked reason, and cancellation forwarding.
-- [ ] Run focused RED.
-- [ ] Pass capability through provider options and implement the runner as a narrow wrapper around ReadOnlyAgentLoop.
-- [ ] Run full tests/typecheck and commit `feat: adapt agent loop to chat turns`.
+- [x] Add failing tests for capability reporting, missing `streamAgent`, loop completion, blocked reason, and cancellation forwarding.
+- [x] Run focused RED.
+- [x] Pass capability through provider options and implement the runner as a narrow wrapper around ReadOnlyAgentLoop.
+- [x] Run full tests/typecheck and commit `feat: adapt agent loop to chat turns`.
 
 ### Task 3: ChatService routing and persistence
 
