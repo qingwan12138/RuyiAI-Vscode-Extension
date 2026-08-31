@@ -6,6 +6,14 @@ export interface ToolConfirmationSummary {
 }
 
 export function summarizeToolConfirmation(request: ToolConfirmationRequest): ToolConfirmationSummary | undefined {
+  if (request.toolId === 'create_text_file') {
+    const { path, content } = request.input;
+    if (typeof path !== 'string' || typeof content !== 'string') return undefined;
+    return {
+      message: `Create the proposed file ${bounded(path, 180)}?`,
+      detail: [`Content: ${printable(content)}`, request.reason].join('\n')
+    };
+  }
   if (request.toolId !== 'replace_text') return undefined;
   const { path, oldText, newText } = request.input;
   if (typeof path !== 'string' || typeof oldText !== 'string' || typeof newText !== 'string') return undefined;

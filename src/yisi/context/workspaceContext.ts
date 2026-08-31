@@ -22,6 +22,17 @@ export interface WorkspaceTextReplacementResult {
   bytes: number;
 }
 
+export interface WorkspaceTextFileCreation {
+  path: string;
+  content: string;
+}
+
+export interface WorkspaceTextFileCreationResult {
+  path: string;
+  sha256: string;
+  bytes: number;
+}
+
 export interface WorkspaceDirectoryEntry {
   path: string;
   name: string;
@@ -59,4 +70,5 @@ export interface FileSystemPort {
 
 export interface WorkspaceWritePort {
   replaceText(change: WorkspaceTextReplacement, signal?: AbortSignal): Promise<WorkspaceTextReplacementResult>;
+  createTextFile(change: WorkspaceTextFileCreation, signal?: AbortSignal): Promise<WorkspaceTextFileCreationResult>;
 }

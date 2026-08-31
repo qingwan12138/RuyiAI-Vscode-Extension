@@ -10,6 +10,8 @@ import {
   WorkspaceFileContent,
   WorkspaceSearchMatch,
   WorkspaceSearchResult,
+  WorkspaceTextFileCreation,
+  WorkspaceTextFileCreationResult,
   WorkspaceTextReplacement,
   WorkspaceTextReplacementResult,
   WorkspaceWritePort
@@ -137,6 +139,42 @@ export class NodeWorkspaceFileSystem implements FileSystemPort, WorkspaceWritePo
     };
   }
 
+  async createTextFile(
+    change: WorkspaceTextFileCreation,
+    signal?: AbortSignal
+  ): Promise<WorkspaceTextFileCreationResult> {
+    signal?.throwIfAborted();
+    if (isImplicitlySensitivePath(change.path)) {
+      throw new WorkspaceContentError('Agent file creation cannot target credential-sensitive paths.');
+    }
+    if (change.content.includes('\0')) throw new WorkspaceContentError('Binary workspace content is not supported.');
+    const content = Buffer.from(change.content, 'utf8');
+    if (content.byteLength > this.limits.maxReadBytes) {
+      throw new WorkspaceLimitError('New workspace file exceeds the content limit.');
+    }
+    const target = await this.resolveNewFile(change.path);
+    const temporary = path.join(path.dirname(target), `.yisi-create-${randomUUID()}.tmp`);
+    let handle: fs.FileHandle | undefined;
+    try {
+      handle = await fs.open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o666);
+      await handle.writeFile(content);
+      await handle.sync();
+      await handle.close();
+      handle = undefined;
+      signal?.throwIfAborted();
+      try {
+        await fs.link(temporary, target);
+      } catch (error) {
+        if (hasCode(error, 'EEXIST')) throw new WorkspaceContentError('Workspace target already exists.');
+        throw error;
+      }
+    } finally {
+      await handle?.close().catch(() => undefined);
+      await fs.unlink(temporary).catch(() => undefined);
+    }
+    return { path: this.relative(target), sha256: sha256(content), bytes: content.byteLength };
+  }
+
   async listDirectory(relativePath: string, signal?: AbortSignal): Promise<WorkspaceDirectoryEntry[]> {
     signal?.throwIfAborted();
     const target = await this.resolveExisting(relativePath, true);
@@ -244,6 +282,31 @@ export class NodeWorkspaceFileSystem implements FileSystemPort, WorkspaceWritePo
     return canonical;
   }
 
+  private async resolveNewFile(relativePath: string): Promise<string> {
+    if (!relativePath || relativePath.includes('\0')) throw new WorkspaceBoundaryError('Workspace-relative path is required.');
+    if (relativePath.endsWith('/') || relativePath.endsWith('\\')) {
+      throw new WorkspaceBoundaryError('Workspace file path must not end with a separator.');
+    }
+    if (path.isAbsolute(relativePath) || path.win32.isAbsolute(relativePath) || path.posix.isAbsolute(relativePath)) {
+      throw new WorkspaceBoundaryError('Absolute paths are not allowed.');
+    }
+    const unresolved = path.resolve(this.root, relativePath);
+    this.assertWithinRoot(unresolved, false);
+    let parent: string;
+    try {
+      parent = await fs.realpath(path.dirname(unresolved));
+    } catch (error) {
+      if (hasCode(error, 'ENOENT')) throw new WorkspaceContentError('Workspace parent directory does not exist.');
+      throw error;
+    }
+    this.assertWithinRoot(parent);
+    const stat = await fs.stat(parent);
+    if (!stat.isDirectory()) throw new WorkspaceContentError('Workspace parent path is not a directory.');
+    const target = path.join(parent, path.basename(unresolved));
+    this.assertWithinRoot(target, false);
+    return target;
+  }
+
   private assertWithinRoot(target: string, allowRoot = true): void {
     const relative = path.relative(this.root, target);
     if ((!allowRoot && relative === '') || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
@@ -326,6 +389,10 @@ function countOccurrences(text: string, value: string): number {
     offset = index + value.length;
   }
   return count;
+}
+
+function hasCode(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return error instanceof Error && (error as NodeJS.ErrnoException).code === code;
 }
 
 function validateLimits(limits: WorkspaceContextLimits): WorkspaceContextLimits {

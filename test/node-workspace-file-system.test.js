@@ -65,6 +65,38 @@ test('preserves the existing file mode across replacement', async t => {
   assert.equal((await fs.stat(target)).mode & 0o7777, modeBefore);
 });
 
+test('publishes a complete new UTF-8 file without overwriting an existing target', async t => {
+  const { root, adapter } = await fixture(t);
+
+  const result = await adapter.createTextFile({ path: 'src/new file.ts', content: 'export const created = true;\n' });
+
+  assert.equal(result.path, 'src/new file.ts');
+  assert.equal(result.bytes, Buffer.byteLength('export const created = true;\n'));
+  assert.match(result.sha256, /^[a-f0-9]{64}$/);
+  assert.equal(await fs.readFile(path.join(root, 'src', 'new file.ts'), 'utf8'), 'export const created = true;\n');
+  await assert.rejects(
+    adapter.createTextFile({ path: 'src/new file.ts', content: 'overwrite' }),
+    /already exists/i
+  );
+  assert.equal(await fs.readFile(path.join(root, 'src', 'new file.ts'), 'utf8'), 'export const created = true;\n');
+});
+
+test('rejects unsafe, missing-parent, oversized, and cancelled file creation', async t => {
+  const { root } = await fixture(t);
+  const adapter = await NodeWorkspaceFileSystem.create(root, { maxReadBytes: 8 });
+  await assert.rejects(adapter.createTextFile({ path: '../outside.ts', content: 'x' }), WorkspaceBoundaryError);
+  await assert.rejects(adapter.createTextFile({ path: '.env', content: 'TOKEN=x' }), /credential-sensitive/i);
+  await assert.rejects(adapter.createTextFile({ path: 'missing/new.ts', content: 'x' }), /parent/i);
+  await assert.rejects(adapter.createTextFile({ path: 'src/large.ts', content: '123456789' }), WorkspaceLimitError);
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    adapter.createTextFile({ path: 'src/cancelled.ts', content: 'x' }, controller.signal),
+    error => error.name === 'AbortError'
+  );
+  await assert.rejects(fs.stat(path.join(root, 'src', 'cancelled.ts')), error => error.code === 'ENOENT');
+});
+
 test('rejects stale, missing, duplicate, sensitive, and cancelled replacements without mutation', async t => {
   const { root, adapter } = await fixture(t);
   const before = await adapter.readFile('README.md');

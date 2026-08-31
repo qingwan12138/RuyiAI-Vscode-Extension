@@ -4,7 +4,8 @@ const assert = require('node:assert/strict');
 const {
   WorkspaceEditInputError,
   WorkspaceEditService,
-  createWorkspaceEditTool
+  createWorkspaceEditTool,
+  createWorkspaceFileTool
 } = require('../dist/yisi/application/edit/workspaceEditService');
 
 function harness(diagnostics) {
@@ -19,10 +20,14 @@ function harness(diagnostics) {
         replacements: 1,
         bytes: 12
       };
+    },
+    async createTextFile(change, signal) {
+      calls.push([change, signal]);
+      return { path: change.path, sha256: 'c'.repeat(64), bytes: Buffer.byteLength(change.content) };
     }
   };
   const service = new WorkspaceEditService(port, diagnostics);
-  return { calls, service, tool: createWorkspaceEditTool(service) };
+  return { calls, service, tool: createWorkspaceEditTool(service), createTool: createWorkspaceFileTool(service) };
 }
 
 const valid = {
@@ -47,6 +52,28 @@ test('declares one bounded workspace-write tool and forwards the execution signa
   assert.equal(result.diagnostics.status, 'unavailable');
   assert.deepEqual(tool.inputSchema.required, ['path', 'expectedSha256', 'oldText', 'newText']);
   assert.equal(tool.inputSchema.additionalProperties, false);
+});
+
+test('declares and validates an exclusive text-file creation tool', async () => {
+  const { calls, createTool } = harness();
+  const signal = new AbortController().signal;
+  const context = { sessionId: 's1', workspaceUri: 'file:///workspace', signal };
+
+  const result = await createTool.execute({ path: 'src/new.ts', content: 'export {};\n' }, context);
+
+  assert.equal(createTool.id, 'create_text_file');
+  assert.equal(createTool.risk, 'workspaceWrite');
+  assert.equal(createTool.mutatesWorkspace, true);
+  assert.equal(result.edit.path, 'src/new.ts');
+  assert.equal(result.diagnostics.status, 'unavailable');
+  assert.deepEqual(calls, [[{ path: 'src/new.ts', content: 'export {};\n' }, signal]]);
+  for (const invalid of [
+    {}, { path: '', content: 'x' }, { path: 'a', content: 1 },
+    { path: 'a', content: 'x', overwrite: true }, { path: 'a', content: 'x'.repeat(262_145) }
+  ]) {
+    await assert.rejects(createTool.execute(invalid, context), WorkspaceEditInputError);
+  }
+  assert.equal(calls.length, 1);
 });
 
 test('returns a bounded diagnostic snapshot after the edit without turning collection failure into edit failure', async () => {

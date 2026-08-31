@@ -54,7 +54,7 @@ This is still not the final visual design, but it is now an executable UI baseli
 - terminal UI
 - Ruyi environment cards
 
-These must be added according to the architecture milestones instead of faked in the UI layer. The current provider path is real chat transport and can run bounded Read/List/Search plus stale-safe unique text replacement when tool calling is explicitly enabled. It still cannot run commands, create/delete files, show a complete diff card, or automatically validate an edit.
+These must be added according to the architecture milestones instead of faked in the UI layer. The current provider path is real chat transport and can run bounded Read/List/Search, stale-safe unique text replacement, and exclusive new UTF-8 file creation when tool calling is explicitly enabled. It still cannot run commands, delete/rename files, create directories, show a complete diff card, or perform completion-grade automatic validation.
 
 Automated transport verification uses a local fake OpenAI-compatible HTTP/SSE server. A real user cloud credential was not used during repository verification.
 

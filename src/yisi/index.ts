@@ -17,7 +17,11 @@ import { WorkspaceContextService, createWorkspaceContextTools } from './applicat
 import { ToolRegistry } from './application/agent/toolRegistry';
 import { PermissionEngine } from './permissions/permissionEngine';
 import { AgentChatRunner } from './application/agent/agentChatRunner';
-import { WorkspaceEditService, createWorkspaceEditTool } from './application/edit/workspaceEditService';
+import {
+  WorkspaceEditService,
+  createWorkspaceEditTool,
+  createWorkspaceFileTool
+} from './application/edit/workspaceEditService';
 import { VsCodeToolConfirmation } from './vscode/agent/vsCodeToolConfirmation';
 import { VsCodeDiagnosticProvider } from './vscode/diagnostics/vsCodeDiagnosticProvider';
 
@@ -82,9 +86,11 @@ async function createAgentRunner(): Promise<AgentChatRunner | undefined> {
       getDiagnostics: () => vscode.languages.getDiagnostics(),
       getWorkspaceFolder: uri => vscode.workspace.getWorkspaceFolder(uri as vscode.Uri)
     }, [workspace.uri], 50);
+    const edits = new WorkspaceEditService(fileSystem, diagnostics);
     const tools = [
       ...createWorkspaceContextTools(new WorkspaceContextService(fileSystem)),
-      createWorkspaceEditTool(new WorkspaceEditService(fileSystem, diagnostics))
+      createWorkspaceEditTool(edits),
+      createWorkspaceFileTool(edits)
     ];
     return new AgentChatRunner(
       new ToolRegistry(tools),

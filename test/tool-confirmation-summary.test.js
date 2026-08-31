@@ -15,6 +15,13 @@ test('summarizes only the bounded replace-text approval surface', () => {
   assert.match(summary.detail, /old\\nline/);
   assert.match(summary.detail, /Manual approval required/);
   assert.ok(summary.detail.length < 900);
+  const create = summarizeToolConfirmation({
+    callId: 'c-create', toolId: 'create_text_file',
+    input: { path: 'src/new.ts', content: 'export const value = 1;\n' },
+    reason: 'Manual approval required.'
+  });
+  assert.match(create.message, /Create.*src\/new\.ts/);
+  assert.match(create.detail, /export const value/);
   assert.equal(summarizeToolConfirmation({
     callId: 'c2', toolId: 'run_command', input: {}, reason: 'no'
   }), undefined);
