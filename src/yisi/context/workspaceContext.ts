@@ -4,6 +4,22 @@ export interface WorkspaceFileContent {
   path: string;
   text: string;
   bytes: number;
+  sha256: string;
+}
+
+export interface WorkspaceTextReplacement {
+  path: string;
+  expectedSha256: string;
+  oldText: string;
+  newText: string;
+}
+
+export interface WorkspaceTextReplacementResult {
+  path: string;
+  beforeSha256: string;
+  afterSha256: string;
+  replacements: 1;
+  bytes: number;
 }
 
 export interface WorkspaceDirectoryEntry {
@@ -39,4 +55,8 @@ export interface FileSystemPort {
   readFile(relativePath: string, signal?: AbortSignal): Promise<WorkspaceFileContent>;
   listDirectory(relativePath: string, signal?: AbortSignal): Promise<WorkspaceDirectoryEntry[]>;
   searchText(query: string, relativeScope?: string, signal?: AbortSignal): Promise<WorkspaceSearchResult>;
+}
+
+export interface WorkspaceWritePort {
+  replaceText(change: WorkspaceTextReplacement, signal?: AbortSignal): Promise<WorkspaceTextReplacementResult>;
 }

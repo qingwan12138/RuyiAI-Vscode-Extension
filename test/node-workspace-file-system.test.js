@@ -27,6 +27,45 @@ test('reads UTF-8 text and preserves workspace-relative identity and EOL', async
   assert.equal(result.path, 'README.md');
   assert.equal(result.text, 'needle in readme\r\nsecond line\r\n');
   assert.equal(result.bytes, Buffer.byteLength(result.text));
+  assert.match(result.sha256, /^[a-f0-9]{64}$/);
+});
+
+test('atomically replaces one text occurrence with a stale hash guard', async t => {
+  const { root, adapter } = await fixture(t);
+  const before = await adapter.readFile('README.md');
+
+  const result = await adapter.replaceText({
+    path: 'README.md',
+    expectedSha256: before.sha256,
+    oldText: 'needle in readme',
+    newText: 'updated heading'
+  });
+
+  assert.equal(result.path, 'README.md');
+  assert.equal(result.beforeSha256, before.sha256);
+  assert.match(result.afterSha256, /^[a-f0-9]{64}$/);
+  assert.notEqual(result.afterSha256, before.sha256);
+  assert.equal(result.replacements, 1);
+  assert.equal(await fs.readFile(path.join(root, 'README.md'), 'utf8'), 'updated heading\r\nsecond line\r\n');
+});
+
+test('rejects stale, missing, duplicate, sensitive, and cancelled replacements without mutation', async t => {
+  const { root, adapter } = await fixture(t);
+  const before = await adapter.readFile('README.md');
+  const base = { path: 'README.md', expectedSha256: before.sha256, oldText: 'needle', newText: 'changed' };
+
+  await assert.rejects(adapter.replaceText({ ...base, expectedSha256: '0'.repeat(64) }), /changed since/i);
+  await assert.rejects(adapter.replaceText({ ...base, oldText: 'missing' }), /exactly once/i);
+  await fs.writeFile(path.join(root, 'duplicate.txt'), 'same same');
+  const duplicate = await adapter.readFile('duplicate.txt');
+  await assert.rejects(adapter.replaceText({ ...base, path: 'duplicate.txt', expectedSha256: duplicate.sha256, oldText: 'same' }), /exactly once/i);
+  await fs.writeFile(path.join(root, '.env'), 'TOKEN=secret');
+  const sensitive = await adapter.readFile('.env');
+  await assert.rejects(adapter.replaceText({ ...base, path: '.env', expectedSha256: sensitive.sha256, oldText: 'secret' }), /credential-sensitive/i);
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(adapter.replaceText(base, controller.signal), error => error.name === 'AbortError');
+  assert.equal(await fs.readFile(path.join(root, 'README.md'), 'utf8'), before.text);
 });
 
 test('rejects absolute paths and traversal before filesystem access', async t => {

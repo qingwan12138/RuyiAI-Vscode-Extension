@@ -1,6 +1,7 @@
 import { constants } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   FileSystemPort,
   WorkspaceContextLimits,
@@ -8,7 +9,10 @@ import {
   WorkspaceEntryKind,
   WorkspaceFileContent,
   WorkspaceSearchMatch,
-  WorkspaceSearchResult
+  WorkspaceSearchResult,
+  WorkspaceTextReplacement,
+  WorkspaceTextReplacementResult,
+  WorkspaceWritePort
 } from '../../context/workspaceContext';
 import { isImplicitlySensitivePath } from '../../context/implicitSensitivePath';
 
@@ -47,7 +51,7 @@ export class WorkspaceLimitError extends Error {
   }
 }
 
-export class NodeWorkspaceFileSystem implements FileSystemPort {
+export class NodeWorkspaceFileSystem implements FileSystemPort, WorkspaceWritePort {
   private constructor(
     private readonly root: string,
     private readonly limits: WorkspaceContextLimits
@@ -70,7 +74,66 @@ export class NodeWorkspaceFileSystem implements FileSystemPort {
     if (!stat.isFile()) throw new WorkspaceContentError('Workspace path is not a file.');
     if (stat.size > this.limits.maxReadBytes) throw new WorkspaceLimitError('Workspace file exceeds the read limit.');
     const bytes = await readBounded(target, this.limits.maxReadBytes, signal);
-    return { path: this.relative(target), text: decodeText(bytes), bytes: bytes.byteLength };
+    return {
+      path: this.relative(target),
+      text: decodeText(bytes),
+      bytes: bytes.byteLength,
+      sha256: sha256(bytes)
+    };
+  }
+
+  async replaceText(
+    change: WorkspaceTextReplacement,
+    signal?: AbortSignal
+  ): Promise<WorkspaceTextReplacementResult> {
+    signal?.throwIfAborted();
+    if (isImplicitlySensitivePath(change.path)) {
+      throw new WorkspaceContentError('Agent edits cannot target credential-sensitive paths.');
+    }
+    if (!/^[a-f0-9]{64}$/.test(change.expectedSha256)) {
+      throw new WorkspaceContentError('Expected file version is invalid.');
+    }
+    if (!change.oldText) throw new WorkspaceContentError('Replacement source text is required.');
+    const target = await this.resolveExisting(change.path, false);
+    const stat = await fs.stat(target);
+    if (!stat.isFile()) throw new WorkspaceContentError('Workspace path is not a file.');
+    if (stat.size > this.limits.maxReadBytes) throw new WorkspaceLimitError('Workspace file exceeds the edit limit.');
+    const originalBytes = await readBounded(target, this.limits.maxReadBytes, signal);
+    const beforeSha256 = sha256(originalBytes);
+    if (beforeSha256 !== change.expectedSha256) {
+      throw new WorkspaceContentError('Workspace file changed since it was read.');
+    }
+    const original = decodeText(originalBytes);
+    if (countOccurrences(original, change.oldText) !== 1) {
+      throw new WorkspaceContentError('Replacement source text must occur exactly once.');
+    }
+    const updated = original.replace(change.oldText, change.newText);
+    const updatedBytes = Buffer.from(updated, 'utf8');
+    if (updatedBytes.byteLength > this.limits.maxReadBytes) {
+      throw new WorkspaceLimitError('Updated workspace file exceeds the edit limit.');
+    }
+    signal?.throwIfAborted();
+    const temporary = path.join(path.dirname(target), `.yisi-edit-${randomUUID()}.tmp`);
+    let handle: fs.FileHandle | undefined;
+    try {
+      handle = await fs.open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, stat.mode);
+      await handle.writeFile(updatedBytes);
+      await handle.sync();
+      await handle.close();
+      handle = undefined;
+      signal?.throwIfAborted();
+      await fs.rename(temporary, target);
+    } finally {
+      await handle?.close().catch(() => undefined);
+      await fs.unlink(temporary).catch(() => undefined);
+    }
+    return {
+      path: this.relative(target),
+      beforeSha256,
+      afterSha256: sha256(updatedBytes),
+      replacements: 1,
+      bytes: updatedBytes.byteLength
+    };
   }
 
   async listDirectory(relativePath: string, signal?: AbortSignal): Promise<WorkspaceDirectoryEntry[]> {
@@ -246,6 +309,23 @@ function compareNames(left: string, right: string): number {
 }
 
 const isImplicitlySkippedFile = isImplicitlySensitivePath;
+
+function sha256(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+function countOccurrences(text: string, value: string): number {
+  let count = 0;
+  let offset = 0;
+  while (offset <= text.length - value.length) {
+    const index = text.indexOf(value, offset);
+    if (index < 0) break;
+    count += 1;
+    if (count > 1) break;
+    offset = index + value.length;
+  }
+  return count;
+}
 
 function validateLimits(limits: WorkspaceContextLimits): WorkspaceContextLimits {
   for (const value of Object.values(limits)) {
