@@ -84,4 +84,4 @@
 
 - [x] **Step 1: Document exact delivered behavior** and explicitly record that provider capability plus Session/UI opt-in is the next slice, not completed here.
 - [x] **Step 2: Run fresh** `npm test`, `npm run check`, `npm run compile`, `git diff --check`, and inspect `git status --short`.
-- [ ] **Step 3: Commit, fast-forward merge to `main`, rerun tests, delete the branch, and continue provider capability plus Session/UI wiring.**
+- [x] **Step 3: Commit, fast-forward merge to `main`, rerun tests, delete the branch, and continue provider capability plus Session/UI wiring.**
