@@ -5,11 +5,14 @@ import {
   ChatDelta,
   ChatRequest,
   LLMProvider,
+  MessageContent,
   ModelCapabilities,
   RequestSampling,
   parseAgentToolCall,
   parseAgentToolDefinition
 } from '../../llm/types';
+import { ProviderKind } from '../../domain/providerConfiguration';
+import { modelSupportsVision } from '../../domain/modelCapabilities';
 import { parseServerSentEvents } from './sseParser';
 
 type FetchImplementation = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -18,6 +21,7 @@ const MAX_TOOL_ARGUMENT_BYTES = 65_536;
 
 export interface OpenAICompatibleProviderOptions {
   id: string;
+  providerKind?: ProviderKind;
   baseUrl: string;
   apiKey?: string;
   fetchImpl?: FetchImplementation;
@@ -27,6 +31,8 @@ export interface OpenAICompatibleProviderOptions {
   temperature?: boolean;
   maxTokens?: boolean;
   reasoningEffort?: boolean;
+  /** Explicit model-family override; otherwise the centralized registry decides. */
+  vision?: boolean;
 }
 
 export class ProviderTransportError extends Error {
@@ -43,6 +49,7 @@ export class ProviderTransportError extends Error {
 
 export class OpenAICompatibleProvider implements LLMProvider {
   readonly id: string;
+  readonly imageInputTransport = true;
   private readonly fetchImpl: FetchImplementation;
 
   constructor(private readonly options: OpenAICompatibleProviderOptions) {
@@ -73,11 +80,11 @@ export class OpenAICompatibleProvider implements LLMProvider {
     )))].sort();
   }
 
-  async capabilities(_model: string): Promise<ModelCapabilities> {
+  async capabilities(model: string): Promise<ModelCapabilities> {
     return {
       toolCalling: this.options.toolCalling ?? false,
       streaming: true,
-      vision: false,
+      vision: modelSupportsVision(this.options.providerKind ?? 'openaiCompatible', model, this.options.vision),
       reasoning: this.options.reasoningEffort ?? false,
       structuredOutput: false
     };
@@ -89,7 +96,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       headers: this.headers(),
       body: JSON.stringify({
         model: request.model,
-        messages: request.messages,
+        messages: request.messages.map(openAIWireMessage),
         stream: true,
         ...this.samplingBody(request)
       }),
@@ -245,7 +252,21 @@ function agentWireMessage(message: AgentConversationMessage): Record<string, unk
       }))
     };
   }
-  return { role: message.role, content: message.content };
+  return { role: message.role, content: openAIWireContent(message.content) };
+}
+
+function openAIWireMessage(message: { role: string; content: MessageContent }): Record<string, unknown> {
+  return { role: message.role, content: openAIWireContent(message.content) };
+}
+
+function openAIWireContent(content: MessageContent): unknown {
+  if (typeof content === 'string') return content;
+  return content.map(part => part.type === 'text'
+    ? { type: 'text', text: part.text }
+    : {
+        type: 'image_url',
+        image_url: { url: `data:${part.mimeType};base64,${part.dataBase64}` }
+      });
 }
 
 function firstChoice(value: unknown): { delta: Record<string, unknown>; finish_reason?: unknown } {

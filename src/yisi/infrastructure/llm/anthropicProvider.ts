@@ -2,8 +2,10 @@ import {
   ChatDelta,
   ChatRequest,
   LLMProvider,
+  MessageContent,
   ModelCapabilities
 } from '../../llm/types';
+import { modelSupportsVision } from '../../domain/modelCapabilities';
 import { parseServerSentEvents } from './sseParser';
 
 type FetchImplementation = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -28,6 +30,8 @@ export interface AnthropicProviderOptions {
   maxTokens?: boolean;
   // Whether extended thinking budget control is enabled for this profile.
   thinking?: boolean;
+  /** Explicit model-family override; otherwise the centralized registry decides. */
+  vision?: boolean;
 }
 
 export class AnthropicTransportError extends Error {
@@ -43,6 +47,7 @@ export class AnthropicTransportError extends Error {
 
 export class AnthropicProvider implements LLMProvider {
   readonly id: string;
+  readonly imageInputTransport = true;
   private readonly fetchImpl: FetchImplementation;
 
   constructor(private readonly options: AnthropicProviderOptions) {
@@ -70,11 +75,11 @@ export class AnthropicProvider implements LLMProvider {
     await this.requireSuccess(response, model);
   }
 
-  async capabilities(_model: string): Promise<ModelCapabilities> {
+  async capabilities(model: string): Promise<ModelCapabilities> {
     return {
       toolCalling: false,
       streaming: true,
-      vision: false,
+      vision: modelSupportsVision('anthropic', model, this.options.vision),
       reasoning: this.options.thinking ?? false,
       structuredOutput: false
     };
@@ -122,10 +127,11 @@ export class AnthropicProvider implements LLMProvider {
     const messages = [];
     for (const message of request.messages) {
       if (message.role === 'system') {
-        system = system === undefined ? message.content : `${system}\n\n${message.content}`;
+        const text = contentAsText(message.content);
+        system = system === undefined ? text : `${system}\n\n${text}`;
         continue;
       }
-      messages.push({ role: message.role, content: message.content });
+      messages.push({ role: message.role, content: anthropicWireContent(message.content) });
     }
 
     const maxTokens = this.options.maxTokens && request.maxTokens !== undefined
@@ -182,4 +188,23 @@ export class AnthropicProvider implements LLMProvider {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function contentAsText(content: MessageContent): string {
+  if (typeof content === 'string') return content;
+  return content.filter(part => part.type === 'text').map(part => part.text).join('\n');
+}
+
+function anthropicWireContent(content: MessageContent): unknown {
+  if (typeof content === 'string') return content;
+  return content.map(part => part.type === 'text'
+    ? { type: 'text', text: part.text }
+    : {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: part.mimeType,
+          data: part.dataBase64
+        }
+      });
 }

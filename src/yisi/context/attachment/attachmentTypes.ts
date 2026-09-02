@@ -62,6 +62,14 @@ export interface AttachmentChunk {
   endLine?: number;
 }
 
+
+export type AttachmentImageMimeType = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+
+export interface AttachmentImagePayload {
+  mimeType: AttachmentImageMimeType;
+  dataBase64: string;
+}
+
 export interface AttachmentImageMeta {
   width?: number;
   height?: number;
@@ -85,6 +93,8 @@ export interface AttachmentExtractionResult {
   metadata?: AttachmentMetadata;
   truncated?: boolean;
   warnings: string[];
+  /** In-memory image payload for multimodal transports; never persisted in Session JSON. */
+  image?: AttachmentImagePayload;
 }
 
 /**
@@ -101,6 +111,8 @@ export interface AttachmentContext {
   metadata?: AttachmentMetadata;
   truncated: boolean;
   warnings: string[];
+  /** In-memory only. Session history persists the file reference, not this base64 payload. */
+  image?: AttachmentImagePayload;
 }
 
 // Central budget / guardrail configuration for the attachment pipeline.
@@ -132,7 +144,8 @@ export const MAX_FILE_BYTES_BY_KIND: Readonly<Partial<Record<AttachmentKind, num
   pdf: 64 * 1024 * 1024,
   document: 32 * 1024 * 1024,
   presentation: 64 * 1024 * 1024,
-  spreadsheet: 32 * 1024 * 1024
+  spreadsheet: 32 * 1024 * 1024,
+  image: 12 * 1024 * 1024
 });
 
 export function maxFileBytesForKind(kind: AttachmentKind): number {

@@ -28,6 +28,9 @@ export interface ProviderConfigurationInput {
 
 export interface ProviderCapabilities {
   toolCalling: boolean;
+  // Optional explicit per-provider model-family override. When omitted, Yisi
+  // uses the centralized model capability registry and stays conservative.
+  vision?: boolean;
   // Structured reasoning capability; supersedes the legacy `reasoningEffort`
   // coarse flag when present.
   reasoning?: ReasoningCapability;
@@ -155,7 +158,7 @@ function parseCapabilities(value: unknown): ProviderCapabilities {
   if (value.reasoning !== undefined) {
     capabilities.reasoning = parseReasoningCapability(value.reasoning);
   }
-  for (const key of ['reasoningEffort', 'speedMode', 'temperature', 'maxTokens'] as const) {
+  for (const key of ['vision', 'reasoningEffort', 'speedMode', 'temperature', 'maxTokens'] as const) {
     if (value[key] !== undefined) {
       if (typeof value[key] !== 'boolean') throw invalid('Malformed provider capabilities.');
       capabilities[key] = value[key];
@@ -167,7 +170,7 @@ function parseCapabilities(value: unknown): ProviderCapabilities {
     }
     capabilities.contextLength = value.contextLength;
   }
-  const allowed = new Set(['toolCalling', 'reasoning', 'reasoningEffort', 'speedMode', 'temperature', 'maxTokens', 'contextLength']);
+  const allowed = new Set(['toolCalling', 'vision', 'reasoning', 'reasoningEffort', 'speedMode', 'temperature', 'maxTokens', 'contextLength']);
   if (!Object.keys(value).every(key => allowed.has(key))) throw invalid('Malformed provider capabilities.');
   return capabilities;
 }

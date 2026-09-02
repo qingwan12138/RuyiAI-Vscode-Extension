@@ -16,13 +16,13 @@ const OPEN_FILTERS: Record<string, string[]> = {
     'txt', 'md', 'log', 'rst', 'json', 'jsonl', 'yaml', 'yml', 'toml', 'xml', 'ini', 'cfg', 'html', 'htm', 'css', 'sql', 'svg',
     'ts', 'tsx', 'js', 'jsx', 'py', 'c', 'h', 'cpp', 'rs', 'go', 'java', 'cs', 'swift', 'php', 'rb', 'sh', 'ps1', 'lua', 'tex',
     'pdf', 'docx', 'xlsx', 'csv', 'tsv', 'pptx', 'ipynb',
-    'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'
+    'png', 'jpg', 'jpeg', 'webp', 'gif'
   ],
   'Code': ['ts', 'tsx', 'js', 'jsx', 'py', 'c', 'h', 'cpp', 'cc', 'rs', 'go', 'java', 'kt', 'cs', 'swift', 'php', 'rb', 'sh', 'ps1', 'lua', 'tex'],
   'Documents': ['pdf', 'docx', 'md', 'txt', 'html'],
   'Spreadsheets': ['xlsx', 'csv', 'tsv'],
   'Notebooks': ['ipynb'],
-  'Images': ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],
+  'Images': ['png', 'jpg', 'jpeg', 'webp', 'gif'],
   'All Files': ['*']
 };
 

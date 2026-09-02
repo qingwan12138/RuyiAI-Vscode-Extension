@@ -1,6 +1,6 @@
 import { SessionService } from '../session/sessionService';
 import { ProviderCatalog } from '../provider/providerCatalog';
-import { AgentConversationMessage, ChatMessage, LLMProvider, RequestSampling } from '../../llm/types';
+import { AgentConversationMessage, ChatMessage, LLMProvider, MessageContent, RequestSampling } from '../../llm/types';
 import { ConversationItem, FileContextReference, PermissionMode, parseContextReferences } from '../../domain/session';
 import { AttachmentContext } from '../../context/attachment/attachmentTypes';
 import { AttachmentRehydrator } from '../attachment/attachmentService';
@@ -153,11 +153,28 @@ function isAttachmentContext(value: unknown): value is AttachmentContext {
     && Array.isArray((value as AttachmentContext).chunks);
 }
 
-function withExplicitContext(text: string, attachments: AttachmentContext[], budgetTokens: number): string {
+function withExplicitContext(text: string, attachments: AttachmentContext[], budgetTokens: number): MessageContent {
   if (attachments.length === 0) return text;
-  const block = assembleAttachmentContexts(attachments, budgetTokens);
-  if (!block) return text;
-  return `${text}\n\nAttached context:\n${block}`;
+
+  const textual = attachments.filter(attachment => attachment.chunks.length > 0);
+  const images = attachments.filter(attachment => attachment.image !== undefined);
+  const block = assembleAttachmentContexts(textual, budgetTokens);
+  const textContent = block ? `${text}\n\nAttached context:\n${block}` : text;
+  if (images.length === 0) return textContent;
+
+  const parts: Exclude<MessageContent, string> = [{ type: 'text', text: textContent }];
+  for (const attachment of images) {
+    const image = attachment.image;
+    if (!image) continue;
+    parts.push({ type: 'text', text: `[Attached image: ${attachment.fileName}]` });
+    parts.push({
+      type: 'image',
+      mimeType: image.mimeType,
+      dataBase64: image.dataBase64,
+      fileName: attachment.fileName
+    });
+  }
+  return parts;
 }
 
 function historyMessages(
@@ -171,7 +188,7 @@ function historyMessages(
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index];
     if (item.type === 'userMessage') {
-      let content = item.text;
+      let content: MessageContent = item.text;
       if (index === priorItemCount) {
         content = withExplicitContext(item.text, contexts.map(context => context.attachment), budgetTokens);
       } else {

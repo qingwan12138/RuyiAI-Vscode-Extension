@@ -73,6 +73,34 @@ test('sends explicitly attached file content once but persists only its referenc
   assert.equal(JSON.stringify(sessions.getActiveSession()).includes('export const answer = 42'), false);
 });
 
+test('passes image attachments as multimodal content without persisting base64 in the session', async () => {
+  const capture = {};
+  const provider = streamingProvider(['done'], capture);
+  provider.capabilities = async () => ({ toolCalling: false, streaming: true, vision: true });
+  const { chat, sessions } = await harness(provider);
+  const context = {
+    reference: { type: 'file', path: 'photo.jpg', workspaceFolderUri: 'file:///workspace' },
+    attachment: {
+      id: 'img-1',
+      fileName: 'photo.jpg',
+      kind: 'image',
+      chunks: [],
+      image: { mimeType: 'image/jpeg', dataBase64: 'AQID' },
+      truncated: false,
+      warnings: []
+    }
+  };
+
+  await chat.send('What is in this image?', () => {}, new AbortController().signal, [context]);
+
+  const content = capture.request.messages.at(-1).content;
+  assert.equal(Array.isArray(content), true);
+  assert.equal(content.some(part => part.type === 'image' && part.dataBase64 === 'AQID'), true);
+  assert.equal(JSON.stringify(sessions.getActiveSession()).includes('AQID'), false);
+  const user = sessions.getActiveSession().items.find(item => item.type === 'userMessage');
+  assert.deepEqual(user.contexts, [context.reference]);
+});
+
 test('rehydrates a prior attachment reference into a later turn', async () => {
   const capture = {};
   const rehydrator = {

@@ -50,6 +50,19 @@ test('reports explicitly configured tool-calling capability', async () => {
   assert.equal((await disabled.capabilities('model')).toolCalling, false);
 });
 
+test('recognizes centralized DeepSeek vision model ids and exposes image transport', async () => {
+  const provider = new OpenAICompatibleProvider({
+    id: 'deepseek',
+    providerKind: 'deepseek',
+    baseUrl: 'https://api.deepseek.com',
+    fetchImpl: async () => { throw new Error('not used'); }
+  });
+
+  assert.equal(provider.imageInputTransport, true);
+  assert.equal((await provider.capabilities('deepseek-v4-flash-vision-exp')).vision, true);
+  assert.equal((await provider.capabilities('deepseek-v4-flash')).vision, false);
+});
+
 test('streams text deltas and sends the compatible request shape', async () => {
   let request;
   const provider = new OpenAICompatibleProvider({
@@ -71,6 +84,32 @@ test('streams text deltas and sends the compatible request shape', async () => {
   assert.equal(request.init.headers.Authorization, 'Bearer top-secret');
   assert.equal(request.init.signal, signal);
   assert.deepEqual(JSON.parse(request.init.body), { model: 'model-a', messages: [{ role: 'user', content: 'Hi' }], stream: true });
+});
+
+test('serializes multimodal content as OpenAI-compatible image_url blocks', async () => {
+  let sent;
+  const provider = new OpenAICompatibleProvider({
+    id: 'deepseek', providerKind: 'deepseek', baseUrl: 'https://api.deepseek.com',
+    fetchImpl: async (_url, init) => {
+      sent = JSON.parse(init.body);
+      return sseResponse(['data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n']);
+    }
+  });
+  await collect(provider.streamChat({
+    model: 'deepseek-v4-flash-vision-exp',
+    messages: [{ role: 'user', content: [
+      { type: 'text', text: 'Describe this image' },
+      { type: 'image', mimeType: 'image/jpeg', dataBase64: 'AQID', fileName: 'photo.jpg' }
+    ] }]
+  }));
+
+  assert.deepEqual(sent.messages[0], {
+    role: 'user',
+    content: [
+      { type: 'text', text: 'Describe this image' },
+      { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AQID' } }
+    ]
+  });
 });
 
 test('omits Authorization for credential-free local providers', async () => {
@@ -144,6 +183,33 @@ test('maps structural agent messages and reassembles fragmented tool calls', asy
   assert.deepEqual(sent.messages[2], {
     role: 'tool', tool_call_id: 'old-1', name: 'search_text', content: '{"matches":[]}'
   });
+});
+
+test('preserves multimodal user content on the structural agent path', async () => {
+  let sent;
+  const provider = new OpenAICompatibleProvider({
+    id: 'deepseek', providerKind: 'deepseek', baseUrl: 'https://api.deepseek.com', toolCalling: true,
+    fetchImpl: async (_url, init) => {
+      sent = JSON.parse(init.body);
+      return sseResponse([
+        'data: {\"choices\":[{\"delta\":{\"content\":\"seen\"},\"finish_reason\":null}]}\n\n',
+        'data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n',
+        'data: [DONE]\n\n'
+      ]);
+    }
+  });
+
+  await collectEvents(provider.streamAgent({
+    model: 'deepseek-v4-flash-vision-exp',
+    messages: [{ role: 'user', content: [
+      { type: 'text', text: 'Inspect' },
+      { type: 'image', mimeType: 'image/png', dataBase64: 'AA==', fileName: 'x.png' }
+    ] }],
+    tools: []
+  }));
+
+  assert.equal(sent.messages[0].content[1].type, 'image_url');
+  assert.equal(sent.messages[0].content[1].image_url.url, 'data:image/png;base64,AA==');
 });
 
 test('streams normalized final text agent events', async () => {

@@ -172,7 +172,13 @@ export class AttachmentService {
     }
 
     if (guess.kind === 'image') {
-      return this.imageOutcome(candidate, baseView);
+      const capability = await this.visionCapability();
+      if (!capability.modelSupported) {
+        return { view: baseView('image', 'warning', NO_VISION_MESSAGE) };
+      }
+      if (!capability.transportSupported) {
+        return { view: baseView('image', 'warning', NO_IMAGE_TRANSPORT_MESSAGE) };
+      }
     }
 
     const input: AttachmentFileInput = {
@@ -216,23 +222,11 @@ export class AttachmentService {
           chunks: result.chunks ?? [],
           metadata: result.metadata,
           truncated: result.truncated ?? false,
-          warnings
+          warnings,
+          image: result.image
         }
       }
     };
-  }
-
-  private async imageOutcome(
-    candidate: AttachmentCandidate,
-    baseView: (kind: AttachmentKind, status: AttachmentStatus, message?: string) => AttachedFileView
-  ): Promise<AttachmentOutcome> {
-    const capability = await this.visionCapability();
-    // v0.1 places no image bytes on the wire, so an image attachment is always
-    // a warning with no sendable context. The message names which gate failed
-    // (model vision vs. transport) so the user is not misled into thinking the
-    // model can see the file.
-    const message = capability.modelSupported ? NO_IMAGE_TRANSPORT_MESSAGE : NO_VISION_MESSAGE;
-    return { view: baseView('image', 'warning', message) };
   }
 
   private async visionCapability(): Promise<VisionCapability> {

@@ -18,9 +18,24 @@ export interface RequestSampling {
   reasoningPreset?: ReasoningPreset;
 }
 
+export interface TextContentPart {
+  type: 'text';
+  text: string;
+}
+
+export interface ImageContentPart {
+  type: 'image';
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+  dataBase64: string;
+  fileName?: string;
+}
+
+export type MessageContentPart = TextContentPart | ImageContentPart;
+export type MessageContent = string | MessageContentPart[];
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
+  content: MessageContent;
 }
 
 export interface ChatRequest extends RequestSampling {
@@ -45,7 +60,8 @@ export interface AgentToolCall {
 }
 
 export type AgentConversationMessage =
-  | { role: 'system' | 'user'; content: string }
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: MessageContent }
   | { role: 'assistant'; content: string; toolCalls?: AgentToolCall[] }
   | { role: 'tool'; toolCallId: string; name: string; content: string };
 
@@ -61,6 +77,8 @@ export type AgentStreamEvent =
 
 export interface LLMProvider {
   readonly id: string;
+  /** True when this transport can serialize image content onto the provider wire. */
+  readonly imageInputTransport?: boolean;
   listModels(signal?: AbortSignal): Promise<string[]>;
   capabilities(model: string): Promise<ModelCapabilities>;
   streamChat(request: ChatRequest, signal?: AbortSignal): AsyncIterable<ChatDelta>;

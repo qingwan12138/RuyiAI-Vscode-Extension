@@ -24,7 +24,18 @@ export interface PdfPageLike {
   getTextContent(): Promise<{ items: Array<{ str: string; hasEOL?: boolean }> }>;
 }
 export interface PdfJsModule {
-  getDocument(source: { data: Uint8Array; isEvalSupported: boolean; verbosity: number }): { promise: Promise<PdfDocumentLike> };
+  getDocument(source: {
+    data: Uint8Array;
+    isEvalSupported: boolean;
+    verbosity: number;
+    disableFontFace?: boolean;
+    useSystemFonts?: boolean;
+    useWorkerFetch?: boolean;
+    isOffscreenCanvasSupported?: boolean;
+    isImageDecoderSupported?: boolean;
+    enableXfa?: boolean;
+    stopAtErrors?: boolean;
+  }): { promise: Promise<PdfDocumentLike> };
 }
 
 /** pdfjs-dist 4.x is ESM-only, so the module is injected as an async loader. */
@@ -60,7 +71,18 @@ function pdfOpenErrorMessage(error: unknown): string {
   if (lower.includes('missing')) {
     return 'This PDF data could not be found.';
   }
-  return 'Failed to parse this PDF.';
+  if (lower.includes('worker') || lower.includes('dommatrix') || lower.includes('canvas')) {
+    return 'The PDF parser could not initialize correctly in the VS Code extension host.';
+  }
+  if (name === 'UnknownErrorException' && message.trim()) {
+    return `Failed to parse this PDF (${safeDiagnostic(message)}).`;
+  }
+  return name ? `Failed to parse this PDF (${name}).` : 'Failed to parse this PDF.';
+}
+
+function safeDiagnostic(message: string): string {
+  const normalized = message.replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  return normalized.length <= 120 ? normalized : `${normalized.slice(0, 119)}…`;
 }
 
 export class PdfExtractor implements AttachmentExtractor {
@@ -81,6 +103,16 @@ export class PdfExtractor implements AttachmentExtractor {
       document = await pdfjs.getDocument({
         data: new Uint8Array(input.bytes),
         isEvalSupported: false,
+        // Yisi only needs the text layer. Explicitly disable rendering-oriented
+        // browser features so PDF.js does not depend on Canvas/DOM polyfills in
+        // the VS Code Extension Host.
+        disableFontFace: true,
+        useSystemFonts: true,
+        useWorkerFetch: false,
+        isOffscreenCanvasSupported: false,
+        isImageDecoderSupported: false,
+        enableXfa: false,
+        stopAtErrors: false,
         verbosity: 0
       }).promise;
     } catch (error) {

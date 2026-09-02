@@ -10,6 +10,7 @@ const { PdfExtractor } = require('../dist/yisi/infrastructure/attachment/pdfExtr
 const { DocxExtractor } = require('../dist/yisi/infrastructure/attachment/docxExtractor');
 const { PptxExtractor } = require('../dist/yisi/infrastructure/attachment/pptxExtractor');
 const { SpreadsheetExtractor } = require('../dist/yisi/infrastructure/attachment/spreadsheetExtractor');
+const { ImageExtractor } = require('../dist/yisi/infrastructure/attachment/imageExtractor');
 const { parseWebviewMessage, WebviewProtocolError } = require('../dist/yisi/ui/webviewProtocol');
 const { ATTACHMENT_LIMITS, maxFileBytesForKind } = require('../dist/yisi/context/attachment/attachmentTypes');
 
@@ -222,8 +223,11 @@ test('parses a DOCX through an injected mammoth module', async () => {
 });
 
 test('extracts PDF text per page through an injected pdfjs module', async () => {
+  let pdfSource;
   const fakePdfjs = {
-    getDocument: () => ({
+    getDocument: source => {
+      pdfSource = source;
+      return ({
       promise: Promise.resolve({
         numPages: 2,
         getPage: page => Promise.resolve({
@@ -233,7 +237,8 @@ test('extracts PDF text per page through an injected pdfjs module', async () => 
         }),
         destroy: () => Promise.resolve()
       })
-    })
+    });
+    }
   };
   const service = new AttachmentService(new AttachmentExtractorRegistry().register(new PdfExtractor(async () => fakePdfjs)));
   const outcome = await service.attachOne(candidate('paper.pdf', bytesOf('%PDF fake')));
@@ -241,6 +246,13 @@ test('extracts PDF text per page through an injected pdfjs module', async () => 
   assert.match(contextText(outcome), /Page 1:/);
   assert.match(contextText(outcome), /Hello/);
   assert.match(contextText(outcome), /Page 2:/);
+  assert.equal(pdfSource.isEvalSupported, false);
+  assert.equal(pdfSource.disableFontFace, true);
+  assert.equal(pdfSource.useSystemFonts, true);
+  assert.equal(pdfSource.useWorkerFetch, false);
+  assert.equal(pdfSource.isOffscreenCanvasSupported, false);
+  assert.equal(pdfSource.isImageDecoderSupported, false);
+  assert.equal(pdfSource.enableXfa, false);
 });
 
 test('reports a PDF that cannot be opened as an isolated error, not a generic failure', async () => {
@@ -360,6 +372,15 @@ test('gates image attachments on model vision and never fakes OCR', async () => 
   assert.equal(capableOutcome.view.status, 'warning');
   assert.equal(capableOutcome.view.message, NO_IMAGE_TRANSPORT_MESSAGE);
   assert.equal(capableOutcome.context, undefined);
+
+  const transportReady = new AttachmentService(
+    new AttachmentExtractorRegistry().register(new ImageExtractor()),
+    visionProbe(true, true)
+  );
+  const readyOutcome = await transportReady.attachOne(candidate('photo.png', png));
+  assert.equal(readyOutcome.view.status, 'ready');
+  assert.equal(readyOutcome.context.attachment.image.mimeType, 'image/png');
+  assert.equal(Buffer.from(readyOutcome.context.attachment.image.dataBase64, 'base64').equals(Buffer.from(png)), true);
 });
 
 test('accepts and rejects removeAttachment protocol messages', () => {

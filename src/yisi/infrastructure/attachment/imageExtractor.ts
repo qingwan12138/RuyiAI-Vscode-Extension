@@ -1,15 +1,22 @@
-// Image extractor. Images are never OCR'd and their bytes are never sent to the
-// model as pseudo-text: image attachments are gated on model vision support by
-// the attachment service, and this extractor only classifies the format. Until a
-// vision-capable model is configured the service surfaces a clear warning and
-// keeps the attachment out of context.
+// Multimodal image extractor. Image bytes remain in the Extension Host and are
+// converted to a bounded in-memory base64 payload only after both the selected
+// model and provider transport have passed the vision gate. The payload is never
+// persisted in Session JSON; cross-turn use re-reads the original file reference.
 
-import { AttachmentExtractionResult, AttachmentExtractOptions, AttachmentFileInput } from '../../context/attachment/attachmentTypes';
+import {
+  AttachmentExtractionResult,
+  AttachmentExtractOptions,
+  AttachmentFileInput,
+  AttachmentImageMimeType
+} from '../../context/attachment/attachmentTypes';
 import { AttachmentExtractor } from './attachmentExtractor';
+import { AttachmentExtractionError } from './attachmentErrors';
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const JPEG_SIGNATURE = [0xff, 0xd8, 0xff];
 const GIF_SIGNATURE = [0x47, 0x49, 0x46, 0x38];
+const WEBP_RIFF = [0x52, 0x49, 0x46, 0x46];
+const WEBP_TAG = [0x57, 0x45, 0x42, 0x50];
 
 export class ImageExtractor implements AttachmentExtractor {
   readonly id = 'image';
@@ -19,28 +26,51 @@ export class ImageExtractor implements AttachmentExtractor {
   }
 
   async extract(input: AttachmentFileInput, _options: AttachmentExtractOptions): Promise<AttachmentExtractionResult> {
-    const format = sniffImageFormat(input.head) ?? input.extension ?? 'image';
+    const mimeType = sniffImageMimeType(input.head) ?? mimeTypeFromExtension(input.extension);
+    if (!mimeType) {
+      throw new AttachmentExtractionError('This image format is not supported for model input. Use PNG, JPEG, WebP, or GIF.');
+    }
     return {
       kind: input.kind,
       text: '',
       chunks: [],
       warnings: [],
-      metadata: { image: { format } }
+      metadata: { image: { format: mimeType.slice('image/'.length) } },
+      image: {
+        mimeType,
+        dataBase64: Buffer.from(input.bytes).toString('base64')
+      }
     };
   }
 }
 
-function sniffImageFormat(head: Uint8Array): string | undefined {
-  if (startsWith(head, PNG_SIGNATURE)) return 'png';
-  if (startsWith(head, JPEG_SIGNATURE)) return 'jpeg';
-  if (startsWith(head, GIF_SIGNATURE)) return 'gif';
+function sniffImageMimeType(head: Uint8Array): AttachmentImageMimeType | undefined {
+  if (startsWith(head, PNG_SIGNATURE)) return 'image/png';
+  if (startsWith(head, JPEG_SIGNATURE)) return 'image/jpeg';
+  if (startsWith(head, GIF_SIGNATURE)) return 'image/gif';
+  if (startsWith(head, WEBP_RIFF) && startsWithAt(head, WEBP_TAG, 8)) return 'image/webp';
   return undefined;
 }
 
+function mimeTypeFromExtension(extension?: string): AttachmentImageMimeType | undefined {
+  switch (extension?.toLowerCase()) {
+    case 'png': return 'image/png';
+    case 'jpg':
+    case 'jpeg': return 'image/jpeg';
+    case 'webp': return 'image/webp';
+    case 'gif': return 'image/gif';
+    default: return undefined;
+  }
+}
+
 function startsWith(bytes: Uint8Array, signature: number[]): boolean {
-  if (bytes.length < signature.length) return false;
+  return startsWithAt(bytes, signature, 0);
+}
+
+function startsWithAt(bytes: Uint8Array, signature: number[], offset: number): boolean {
+  if (bytes.length < offset + signature.length) return false;
   for (let index = 0; index < signature.length; index += 1) {
-    if (bytes[index] !== signature[index]) return false;
+    if (bytes[offset + index] !== signature[index]) return false;
   }
   return true;
 }

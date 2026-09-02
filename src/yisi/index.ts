@@ -58,17 +58,20 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
           models: configuration.models,
           temperature: caps.temperature,
           maxTokens: caps.maxTokens,
-          thinking: caps.reasoning?.mode === 'budget'
+          thinking: caps.reasoning?.mode === 'budget',
+          vision: caps.vision
         });
       }
       return new OpenAICompatibleProvider({
         id: configuration.id,
+        providerKind: configuration.kind,
         baseUrl: configuration.baseUrl,
         apiKey,
         toolCalling: caps.toolCalling,
         temperature: caps.temperature,
         maxTokens: caps.maxTokens,
-        reasoningEffort: caps.reasoning?.mode === 'effort' || caps.reasoningEffort === true
+        reasoningEffort: caps.reasoning?.mode === 'effort' || caps.reasoningEffort === true,
+        vision: caps.vision
       });
     }
   };
@@ -91,9 +94,12 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
         }
         const provider = await providerCatalog.resolve(model.providerId);
         const capabilities = await provider.capabilities(model.modelId);
-        // v0.1 has no image transport; model vision is read live from the
-        // provider so the warning names the correct layer.
-        return { modelSupported: capabilities.vision === true, transportSupported: false };
+        // Two independent gates: the selected model must accept images and the
+        // resolved provider adapter must know how to serialize them on the wire.
+        return {
+          modelSupported: capabilities.vision === true,
+          transportSupported: provider.imageInputTransport === true
+        };
       } catch {
         return { modelSupported: false, transportSupported: false };
       }

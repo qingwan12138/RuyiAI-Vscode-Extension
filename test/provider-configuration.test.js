@@ -149,6 +149,7 @@ test('creates and parses exact schema v2 tool capabilities', () => {
 test('round trips model-control capabilities and rejects unknown keys', () => {
   const capabilities = {
     toolCalling: true,
+    vision: true,
     temperature: true,
     maxTokens: true,
     reasoningEffort: false,
