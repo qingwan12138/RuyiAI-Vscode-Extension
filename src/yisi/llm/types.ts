@@ -1,3 +1,5 @@
+import { ReasoningPreset } from '../domain/session';
+
 export interface ModelCapabilities {
   toolCalling: boolean;
   streaming: boolean;
@@ -7,12 +9,21 @@ export interface ModelCapabilities {
   maxContextTokens?: number;
 }
 
+// Optional sampling overrides carried from the session model state to the
+// provider adapter. Adapters translate the unified preset into wire-specific
+// parameters and only send fields their capability profile supports.
+export interface RequestSampling {
+  temperature?: number;
+  maxTokens?: number;
+  reasoningPreset?: ReasoningPreset;
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
 }
 
-export interface ChatRequest {
+export interface ChatRequest extends RequestSampling {
   model: string;
   messages: ChatMessage[];
 }
@@ -38,7 +49,7 @@ export type AgentConversationMessage =
   | { role: 'assistant'; content: string; toolCalls?: AgentToolCall[] }
   | { role: 'tool'; toolCallId: string; name: string; content: string };
 
-export interface AgentRequest {
+export interface AgentRequest extends RequestSampling {
   model: string;
   messages: AgentConversationMessage[];
   tools: AgentToolDefinition[];
@@ -54,6 +65,7 @@ export interface LLMProvider {
   capabilities(model: string): Promise<ModelCapabilities>;
   streamChat(request: ChatRequest, signal?: AbortSignal): AsyncIterable<ChatDelta>;
   streamAgent?(request: AgentRequest, signal?: AbortSignal): AsyncIterable<AgentStreamEvent>;
+  testConnection?(signal?: AbortSignal): Promise<void>;
 }
 
 export function parseAgentToolDefinition(value: unknown): AgentToolDefinition {

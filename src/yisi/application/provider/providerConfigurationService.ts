@@ -87,6 +87,52 @@ export class ProviderConfigurationService {
     return this.workspaceDefault && this.isAvailable(this.workspaceDefault) ? { ...this.workspaceDefault } : undefined;
   }
 
+  async hasSecretKey(providerId: string): Promise<boolean> {
+    const configuration = this.document.configurations.find(item => item.id === providerId);
+    if (!configuration || configuration.credential.source !== 'secretStorage') return false;
+    return !!(await this.secrets.get(providerSecretKey(providerId)));
+  }
+
+  // Reads a stored secret without ever sending it to a Webview. Only used by
+  // extension-host code (test connection / refresh / request routing).
+  async getSecretKey(providerId: string): Promise<string | undefined> {
+    const configuration = this.document.configurations.find(item => item.id === providerId);
+    if (!configuration || configuration.credential.source !== 'secretStorage') return undefined;
+    return this.secrets.get(providerSecretKey(providerId));
+  }
+
+  async updateProvider(
+    providerId: string,
+    patch: Partial<ProviderConfigurationInput>,
+    apiKey?: string
+  ): Promise<ProviderConfiguration> {
+    const next = parseProviderConfigurationDocument(this.document);
+    const index = next.configurations.findIndex(item => item.id === providerId);
+    if (index < 0) throw new Error('Provider not found.');
+    const existing = next.configurations[index];
+    const merged = createProviderConfiguration(providerId, existing.createdAt, {
+      kind: existing.kind,
+      name: patch.name ?? existing.name,
+      baseUrl: patch.baseUrl ?? existing.baseUrl,
+      credential: patch.credential ?? existing.credential,
+      models: patch.models ?? existing.models,
+      capabilities: patch.capabilities ?? existing.capabilities
+    });
+    merged.updatedAt = this.options.now();
+    next.configurations[index] = merged;
+    await this.repository.saveConfigurations(next);
+    this.document = next;
+    if (apiKey !== undefined && merged.credential.source === 'secretStorage') {
+      await this.secrets.set(providerSecretKey(providerId), apiKey);
+    }
+    return structuredClone(merged);
+  }
+
+  async replaceModels(providerId: string, models: string[]): Promise<ProviderConfiguration> {
+    const normalized = [...new Set(models.map(model => model.trim()).filter(Boolean))];
+    return this.updateProvider(providerId, { models: normalized });
+  }
+
   private isAvailable(selection: SessionModelSelection): boolean {
     const provider = this.document.configurations.find(item => item.id === selection.providerId);
     return provider?.models.includes(selection.modelId) ?? false;

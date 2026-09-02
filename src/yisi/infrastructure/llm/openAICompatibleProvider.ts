@@ -6,6 +6,7 @@ import {
   ChatRequest,
   LLMProvider,
   ModelCapabilities,
+  RequestSampling,
   parseAgentToolCall,
   parseAgentToolDefinition
 } from '../../llm/types';
@@ -21,6 +22,11 @@ export interface OpenAICompatibleProviderOptions {
   apiKey?: string;
   fetchImpl?: FetchImplementation;
   toolCalling?: boolean;
+  // Capability gating for sampling fields. The transport only forwards a field
+  // when the request carries it AND the provider profile says it supports it.
+  temperature?: boolean;
+  maxTokens?: boolean;
+  reasoningEffort?: boolean;
 }
 
 export class ProviderTransportError extends Error {
@@ -42,6 +48,10 @@ export class OpenAICompatibleProvider implements LLMProvider {
   constructor(private readonly options: OpenAICompatibleProviderOptions) {
     this.id = options.id;
     this.fetchImpl = options.fetchImpl ?? fetch;
+  }
+
+  async testConnection(signal?: AbortSignal): Promise<void> {
+    await this.listModels(signal);
   }
 
   async listModels(signal?: AbortSignal): Promise<string[]> {
@@ -68,7 +78,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       toolCalling: this.options.toolCalling ?? false,
       streaming: true,
       vision: false,
-      reasoning: false,
+      reasoning: this.options.reasoningEffort ?? false,
       structuredOutput: false
     };
   }
@@ -77,7 +87,12 @@ export class OpenAICompatibleProvider implements LLMProvider {
     const response = await this.fetchImpl(this.endpoint('chat/completions'), {
       method: 'POST',
       headers: this.headers(),
-      body: JSON.stringify({ model: request.model, messages: request.messages, stream: true }),
+      body: JSON.stringify({
+        model: request.model,
+        messages: request.messages,
+        stream: true,
+        ...this.samplingBody(request)
+      }),
       signal
     });
     await this.requireSuccess(response);
@@ -116,7 +131,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
         messages: request.messages.map(agentWireMessage),
         tools,
         tool_choice: 'auto',
-        stream: true
+        stream: true,
+        ...this.samplingBody(request)
       }),
       signal
     });
@@ -177,6 +193,26 @@ export class OpenAICompatibleProvider implements LLMProvider {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (this.options.apiKey) headers.Authorization = `Bearer ${this.options.apiKey}`;
     return headers;
+  }
+
+  // Sampling overrides are only forwarded when the capability profile enables
+  // that field and the request actually carries a value.
+  private samplingBody(request: RequestSampling): Record<string, unknown> {
+    const body: Record<string, unknown> = {};
+    if (this.options.temperature && request.temperature !== undefined) {
+      body.temperature = request.temperature;
+    }
+    if (this.options.maxTokens && request.maxTokens !== undefined) {
+      body.max_tokens = request.maxTokens;
+    }
+    if (
+      this.options.reasoningEffort
+      && request.reasoningPreset !== undefined
+      && (request.reasoningPreset === 'low' || request.reasoningPreset === 'medium' || request.reasoningPreset === 'high')
+    ) {
+      body.reasoning_effort = request.reasoningPreset;
+    }
+    return body;
   }
 
   private async requireSuccess(response: Response): Promise<void> {

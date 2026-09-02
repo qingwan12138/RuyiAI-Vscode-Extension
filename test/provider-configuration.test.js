@@ -145,3 +145,99 @@ test('creates and parses exact schema v2 tool capabilities', () => {
     );
   }
 });
+
+test('round trips model-control capabilities and rejects unknown keys', () => {
+  const capabilities = {
+    toolCalling: true,
+    temperature: true,
+    maxTokens: true,
+    reasoningEffort: false,
+    speedMode: true,
+    contextLength: 32768
+  };
+  const created = createProviderConfiguration('p1', 10, input({ capabilities }));
+  assert.deepEqual(created.capabilities, capabilities);
+
+  const parsed = parseProviderConfigurationDocument({ schemaVersion: 2, configurations: [created] });
+  assert.deepEqual(parsed.configurations[0].capabilities, capabilities);
+
+  assert.throws(
+    () => createProviderConfiguration('p1', 10, input({ capabilities: { ...capabilities, contextLength: -1 } })),
+    ProviderConfigurationSchemaError
+  );
+  assert.throws(
+    () => createProviderConfiguration('p1', 10, input({ capabilities: { ...capabilities, apiKey: 'secret' } })),
+    ProviderConfigurationSchemaError
+  );
+});
+
+test('accepts all five provider kinds and multiple instances of one kind', () => {
+  for (const kind of ['openai', 'deepseek', 'anthropic', 'openaiCompatible', 'llamaCpp']) {
+    const created = createProviderConfiguration('p-' + kind, 10, input({
+      kind,
+      baseUrl: kind === 'openai' ? 'https://api.openai.com/v1' : 'http://127.0.0.1:8080/v1',
+      credential: kind === 'openaiCompatible' || kind === 'llamaCpp'
+        ? { source: 'none' }
+        : { source: 'environment', variableName: 'TEST_KEY' }
+    }));
+    assert.equal(created.kind, kind);
+  }
+
+  // Same kind may be added twice; each gets a distinct stable id.
+  const first = createProviderConfiguration('deepseek-a', 10, input({ kind: 'deepseek', credential: { source: 'environment', variableName: 'TEST_KEY' } }));
+  const second = createProviderConfiguration('deepseek-b', 10, input({ kind: 'deepseek', credential: { source: 'environment', variableName: 'TEST_KEY' } }));
+  assert.equal(first.id, 'deepseek-a');
+  assert.equal(second.id, 'deepseek-b');
+});
+
+test('requires a credential for openai, deepseek, and anthropic', () => {
+  for (const kind of ['openai', 'deepseek', 'anthropic']) {
+    assert.throws(
+      () => createProviderConfiguration('p', 10, input({ kind, credential: { source: 'none' } })),
+      ProviderConfigurationSchemaError
+    );
+  }
+});
+
+test('round trips structured reasoning capability and rejects bad presets', () => {
+  const reasoning = {
+    mode: 'effort',
+    presets: ['auto', 'low', 'medium', 'high'],
+    defaultPreset: 'auto',
+    minBudgetTokens: 1024,
+    maxBudgetTokens: 32000
+  };
+  const created = createProviderConfiguration('p1', 10, input({ capabilities: { toolCalling: true, reasoning } }));
+  assert.deepEqual(created.capabilities.reasoning, reasoning);
+
+  for (const bad of [
+    { mode: 'effort', presets: ['extreme'] },
+    { mode: 'wild' },
+    { mode: 'effort', defaultPreset: 'nope' },
+    { mode: 'effort', maxBudgetTokens: -1 }
+  ]) {
+    assert.throws(
+      () => createProviderConfiguration('p1', 10, input({ capabilities: { toolCalling: true, reasoning: bad } })),
+      ProviderConfigurationSchemaError
+    );
+  }
+});
+
+test('updating a provider preserves its id and stored secret', async () => {
+  const { repository, secrets, service } = serviceHarness();
+  await service.initialize();
+  const created = await service.create(
+    input({ credential: { source: 'secretStorage' }, models: ['a', 'b'] }),
+    'top-secret'
+  );
+
+  const renamed = await service.updateProvider(created.id, { name: 'Renamed Account' });
+
+  assert.equal(renamed.id, created.id);
+  assert.equal(renamed.name, 'Renamed Account');
+  assert.equal(await secrets.get(providerSecretKey(created.id)), 'top-secret');
+
+  const replaced = await service.replaceModels(created.id, ['x', 'a']);
+  assert.deepEqual(replaced.models, ['x', 'a']);
+  assert.equal(service.get(created.id).models.length, 2);
+});

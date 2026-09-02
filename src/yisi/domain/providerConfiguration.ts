@@ -1,10 +1,21 @@
-import { SessionModelSelection } from './session';
+import { ReasoningPreset, SessionModelSelection } from './session';
 
-export type ProviderKind = 'openai' | 'openaiCompatible';
+export type ProviderKind = 'openai' | 'deepseek' | 'anthropic' | 'openaiCompatible' | 'llamaCpp';
 export type CredentialSource =
   | { source: 'secretStorage' }
   | { source: 'environment'; variableName: string }
   | { source: 'none' };
+
+// How a model expresses reasoning control on the wire.
+export type ReasoningMode = 'none' | 'effort' | 'budget' | 'fixed' | 'model-selection';
+
+export interface ReasoningCapability {
+  mode: ReasoningMode;
+  presets?: ReasoningPreset[];
+  defaultPreset?: ReasoningPreset;
+  minBudgetTokens?: number;
+  maxBudgetTokens?: number;
+}
 
 export interface ProviderConfigurationInput {
   kind: ProviderKind;
@@ -17,6 +28,14 @@ export interface ProviderConfigurationInput {
 
 export interface ProviderCapabilities {
   toolCalling: boolean;
+  // Structured reasoning capability; supersedes the legacy `reasoningEffort`
+  // coarse flag when present.
+  reasoning?: ReasoningCapability;
+  reasoningEffort?: boolean;
+  speedMode?: boolean;
+  temperature?: boolean;
+  maxTokens?: boolean;
+  contextLength?: number;
 }
 
 export interface ProviderConfiguration extends ProviderConfigurationInput {
@@ -28,6 +47,27 @@ export interface ProviderConfiguration extends ProviderConfigurationInput {
 export interface ProviderConfigurationDocument {
   schemaVersion: 2;
   configurations: ProviderConfiguration[];
+}
+
+export const PROVIDER_KIND_LABELS: Record<ProviderKind, string> = {
+  openai: 'OpenAI',
+  deepseek: 'DeepSeek',
+  anthropic: 'Anthropic',
+  openaiCompatible: 'OpenAI-compatible',
+  llamaCpp: 'llama.cpp'
+};
+
+export const PROVIDER_KIND_ORDER: ProviderKind[] = [
+  'openai',
+  'deepseek',
+  'anthropic',
+  'openaiCompatible',
+  'llamaCpp'
+];
+
+// Which provider kinds require a credential (secret or environment).
+export function providerKindRequiresCredential(kind: ProviderKind): boolean {
+  return kind === 'openai' || kind === 'deepseek' || kind === 'anthropic';
 }
 
 export class ProviderConfigurationSchemaError extends Error {
@@ -46,11 +86,10 @@ export function createProviderConfiguration(
   if (!id.trim() || !name) throw invalid('Provider id and name are required.');
   const baseUrl = normalizeBaseUrl(input.baseUrl, input.kind);
   const credential = parseCredential(input.credential);
-  if (input.kind === 'openai' && credential.source === 'none') {
-    throw invalid('OpenAI configuration requires a credential.');
+  if (providerKindRequiresCredential(input.kind) && credential.source === 'none') {
+    throw invalid('This provider type requires a credential.');
   }
   const models = [...new Set(input.models.map(model => model.trim()).filter(Boolean))];
-  if (models.length === 0) throw invalid('At least one model is required.');
   if (!Number.isFinite(now) || now < 0) throw invalid('Provider timestamp is invalid.');
   const capabilities = parseCapabilities(input.capabilities);
   return { id, kind: input.kind, name, baseUrl, credential, models, capabilities, createdAt: now, updatedAt: now };
@@ -85,7 +124,7 @@ function parseConfiguration(value: unknown, legacy: boolean): ProviderConfigurat
   }
   if (
     typeof value.id !== 'string'
-    || (value.kind !== 'openai' && value.kind !== 'openaiCompatible')
+    || !isProviderKind(value.kind)
     || typeof value.name !== 'string'
     || typeof value.baseUrl !== 'string'
     || !Array.isArray(value.models)
@@ -109,10 +148,54 @@ function parseConfiguration(value: unknown, legacy: boolean): ProviderConfigurat
 }
 
 function parseCapabilities(value: unknown): ProviderCapabilities {
-  if (!isRecord(value) || !hasKeys(value, ['toolCalling']) || typeof value.toolCalling !== 'boolean') {
+  if (!isRecord(value) || typeof value.toolCalling !== 'boolean') {
     throw invalid('Malformed provider capabilities.');
   }
-  return { toolCalling: value.toolCalling };
+  const capabilities: ProviderCapabilities = { toolCalling: value.toolCalling };
+  if (value.reasoning !== undefined) {
+    capabilities.reasoning = parseReasoningCapability(value.reasoning);
+  }
+  for (const key of ['reasoningEffort', 'speedMode', 'temperature', 'maxTokens'] as const) {
+    if (value[key] !== undefined) {
+      if (typeof value[key] !== 'boolean') throw invalid('Malformed provider capabilities.');
+      capabilities[key] = value[key];
+    }
+  }
+  if (value.contextLength !== undefined) {
+    if (typeof value.contextLength !== 'number' || !Number.isFinite(value.contextLength) || (value.contextLength as number) <= 0) {
+      throw invalid('Malformed provider capabilities.');
+    }
+    capabilities.contextLength = value.contextLength;
+  }
+  const allowed = new Set(['toolCalling', 'reasoning', 'reasoningEffort', 'speedMode', 'temperature', 'maxTokens', 'contextLength']);
+  if (!Object.keys(value).every(key => allowed.has(key))) throw invalid('Malformed provider capabilities.');
+  return capabilities;
+}
+
+function parseReasoningCapability(value: unknown): ReasoningCapability {
+  if (!isRecord(value) || !isReasoningMode(value.mode)) throw invalid('Malformed reasoning capability.');
+  const capability: ReasoningCapability = { mode: value.mode };
+  if (value.presets !== undefined) {
+    if (!Array.isArray(value.presets) || !value.presets.every(isReasoningPreset)) {
+      throw invalid('Malformed reasoning capability.');
+    }
+    capability.presets = value.presets;
+  }
+  if (value.defaultPreset !== undefined) {
+    if (!isReasoningPreset(value.defaultPreset)) throw invalid('Malformed reasoning capability.');
+    capability.defaultPreset = value.defaultPreset;
+  }
+  for (const key of ['minBudgetTokens', 'maxBudgetTokens'] as const) {
+    if (value[key] !== undefined) {
+      if (typeof value[key] !== 'number' || !Number.isInteger(value[key]) || (value[key] as number) < 0) {
+        throw invalid('Malformed reasoning capability.');
+      }
+      capability[key] = value[key];
+    }
+  }
+  const allowed = new Set(['mode', 'presets', 'defaultPreset', 'minBudgetTokens', 'maxBudgetTokens']);
+  if (!Object.keys(value).every(key => allowed.has(key))) throw invalid('Malformed reasoning capability.');
+  return capability;
 }
 
 function parseCredential(value: unknown): CredentialSource {
@@ -141,6 +224,31 @@ function normalizeBaseUrl(raw: string, kind: ProviderKind): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function isProviderKind(value: unknown): value is ProviderKind {
+  return value === 'openai'
+    || value === 'deepseek'
+    || value === 'anthropic'
+    || value === 'openaiCompatible'
+    || value === 'llamaCpp';
+}
+
+export function isReasoningMode(value: unknown): value is ReasoningMode {
+  return value === 'none'
+    || value === 'effort'
+    || value === 'budget'
+    || value === 'fixed'
+    || value === 'model-selection';
+}
+
+export function isReasoningPreset(value: unknown): value is ReasoningPreset {
+  return value === 'auto'
+    || value === 'off'
+    || value === 'low'
+    || value === 'medium'
+    || value === 'high'
+    || value === 'xhigh';
 }
 
 function hasKeys(value: Record<string, unknown>, keys: string[]): boolean {
