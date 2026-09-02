@@ -72,6 +72,42 @@ test('accepts file context references but rejects persisted raw attachment conte
   assert.throws(() => parseSessionDocument(document), SessionSchemaError);
 });
 
+test('round-trips external file references alongside legacy workspace references', () => {
+  const session = validSession();
+  session.items[0].contexts = [
+    { type: 'file', path: 'src/main.ts', workspaceFolderUri: 'file:///workspace' },
+    { type: 'file', path: 'C:\\Users\\me\\paper.pdf', location: 'external', uri: 'file:///C:/Users/me/paper.pdf' }
+  ];
+  const document = {
+    schemaVersion: 1,
+    workspaces: { 'workspace-1': { activeSessionId: 'session-1', sessions: [session] } }
+  };
+
+  const parsed = parseSessionDocument(document);
+  assert.deepEqual(parsed.workspaces['workspace-1'].sessions[0].items[0].contexts, [
+    { type: 'file', path: 'src/main.ts', workspaceFolderUri: 'file:///workspace' },
+    { type: 'file', path: 'C:\\Users\\me\\paper.pdf', location: 'external', uri: 'file:///C:/Users/me/paper.pdf' }
+  ]);
+});
+
+test('rejects malformed external file references', () => {
+  for (const context of [
+    { type: 'file', path: 'x.pdf', location: 'remote' },
+    { type: 'file', path: 'x.pdf', uri: '' },
+    { type: 'file', path: 'x.pdf', location: 'external', workspaceFolderUri: '' }
+  ]) {
+    const session = validSession();
+    session.items[0].contexts = [context];
+    assert.throws(
+      () => parseSessionDocument({
+        schemaVersion: 1,
+        workspaces: { 'workspace-1': { activeSessionId: 'session-1', sessions: [session] } }
+      }),
+      SessionSchemaError
+    );
+  }
+});
+
 test('parseSessionDocument rejects an active session outside its workspace bucket', () => {
   assert.throws(
     () => parseSessionDocument({
@@ -80,4 +116,42 @@ test('parseSessionDocument rejects an active session outside its workspace bucke
     }),
     error => error instanceof SessionSchemaError && /active session/.test(error.message)
   );
+});
+
+test('round trips optional per-session model control fields', () => {
+  const session = validSession();
+  session.model = {
+    providerId: 'p1',
+    modelId: 'm1',
+    reasoningEffort: 'high',
+    speedMode: 'fast',
+    temperature: 0.7,
+    maxTokens: 4096
+  };
+  const document = {
+    schemaVersion: 1,
+    workspaces: { 'workspace-1': { activeSessionId: 'session-1', sessions: [session] } }
+  };
+
+  assert.deepEqual(parseSessionDocument(document), document);
+});
+
+test('parseSessionDocument rejects malformed model control fields', () => {
+  for (const patch of [
+    { reasoningEffort: 'extreme' },
+    { speedMode: 'turbo' },
+    { temperature: 3 },
+    { maxTokens: 0 },
+    { maxTokens: 12.5 }
+  ]) {
+    const session = validSession();
+    session.model = { providerId: 'p1', modelId: 'm1', ...patch };
+    assert.throws(
+      () => parseSessionDocument({
+        schemaVersion: 1,
+        workspaces: { 'workspace-1': { activeSessionId: 'session-1', sessions: [session] } }
+      }),
+      error => error instanceof SessionSchemaError && /Malformed session document/.test(error.message)
+    );
+  }
 });

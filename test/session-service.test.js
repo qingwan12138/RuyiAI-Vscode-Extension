@@ -79,6 +79,49 @@ test('persists only known permission modes for the active session', async () => 
   assert.equal(service.getActiveSession().permissionMode, 'manual');
 });
 
+test('stores per-session model control state and restores it', async () => {
+  const { repository, service } = createHarness();
+  await service.initialize('workspace-a', []);
+  await service.setModelSelection({ providerId: 'p1', modelId: 'm1' });
+  await service.setReasoningEffort('high');
+  await service.setSpeedMode('fast');
+  await service.setTemperature(0.7);
+  await service.setMaxTokens(4096);
+
+  assert.deepEqual(service.getActiveSession().model, {
+    providerId: 'p1',
+    modelId: 'm1',
+    reasoningEffort: 'high',
+    speedMode: 'fast',
+    temperature: 0.7,
+    maxTokens: 4096
+  });
+
+  const restored = new SessionService(repository, { now: () => 500, createId: () => 'unused' });
+  await restored.initialize('workspace-a', []);
+  assert.deepEqual(restored.getActiveSession().model, {
+    providerId: 'p1',
+    modelId: 'm1',
+    reasoningEffort: 'high',
+    speedMode: 'fast',
+    temperature: 0.7,
+    maxTokens: 4096
+  });
+});
+
+test('rejects invalid model control values without changing state', async () => {
+  const { service } = createHarness();
+  await service.initialize('workspace-a', []);
+
+  await assert.rejects(() => service.setReasoningEffort('extreme'), SessionInputError);
+  await assert.rejects(() => service.setSpeedMode('turbo'), SessionInputError);
+  await assert.rejects(() => service.setTemperature(3), SessionInputError);
+  await assert.rejects(() => service.setMaxTokens(0), SessionInputError);
+  await assert.rejects(() => service.setMaxTokens(1.5), SessionInputError);
+
+  assert.deepEqual(service.getActiveSession().model, { providerId: '', modelId: '' });
+});
+
 test('rejects unknown session ids without changing active state', async () => {
   const { service } = createHarness();
   await service.initialize('workspace-a', []);
@@ -99,6 +142,44 @@ test('deleting the final session creates and activates a blank replacement', asy
   assert.notEqual(service.getActiveSession().id, original.id);
   assert.equal(service.listSessions().length, 1);
   assert.equal(service.getActiveSession().items.length, 0);
+});
+
+test('persists a manual rename across service restart', async () => {
+  const { repository, service } = createHarness();
+  await service.initialize('workspace-a', []);
+  const session = service.getActiveSession();
+  await service.renameSession(session.id, 'Compiler Research');
+
+  const restored = new SessionService(repository, { now: () => 500, createId: () => 'unused' });
+  await restored.initialize('workspace-a', []);
+  assert.equal(restored.getActiveSession().title, 'Compiler Research');
+  assert.equal(restored.getActiveSession().titleSource, 'manual');
+});
+
+test('deleting a non-active session keeps the active session unchanged', async () => {
+  const { service } = createHarness();
+  await service.initialize('workspace-a', []);
+  const a = service.getActiveSession();
+  const b = await service.createSession();
+  await service.switchSession(a.id);
+
+  await service.deleteSession(b.id);
+
+  assert.equal(service.getActiveSession().id, a.id);
+  assert.equal(service.listSessions().some(item => item.id === b.id), false);
+});
+
+test('deleting the active session switches to another session', async () => {
+  const { service } = createHarness();
+  await service.initialize('workspace-a', []);
+  const a = service.getActiveSession();
+  const b = await service.createSession();
+  await service.switchSession(a.id);
+
+  await service.deleteSession(a.id);
+
+  assert.equal(service.getActiveSession().id, b.id);
+  assert.equal(service.listSessions().length, 1);
 });
 
 test('persists ordered messages and restores them in a new service', async () => {
@@ -153,4 +234,21 @@ test('imports compatible legacy metadata once', async () => {
   assert.equal(service.getActiveSession().id, 'legacy-1');
   assert.equal(service.getActiveSession().titleSource, 'manual');
   assert.deepEqual(service.getActiveSession().items, []);
+});
+
+test('finds sessions that reference a provider instance without mutating them', async () => {
+  const { service } = createHarness();
+  await service.initialize('workspace-a', []);
+  const a = service.getActiveSession();
+  const b = await service.createSession();
+  await service.setModelSelection({ providerId: 'company-api', modelId: 'qwen3-coder' });
+  await service.switchSession(a.id);
+  await service.setModelSelection({ providerId: 'company-api', modelId: 'deepseek-r1' });
+
+  const affected = service.findByProvider('company-api');
+
+  assert.deepEqual(new Set(affected), new Set([a.id, b.id]));
+  assert.deepEqual(service.findByProvider('other'), []);
+  // Querying must not reorder or mutate sessions.
+  assert.deepEqual(service.listSessions().map(item => item.id), [a.id, b.id]);
 });

@@ -5,20 +5,25 @@ import { WebviewMessage, parseWebviewMessage } from './webviewProtocol';
 import { ProviderSetupWizard } from '../vscode/provider/providerSetupWizard';
 import { ChatService, ExplicitFileContext } from '../application/chat/chatService';
 import { ChatRunCoordinator } from './chatRunCoordinator';
-import { ExplicitContextPicker } from '../application/context/explicitContextPicker';
+import { AttachmentContextPicker } from '../application/context/explicitContextPicker';
+import { AttachmentOutcome } from '../application/attachment/attachmentService';
+import { ATTACHMENT_LIMITS } from '../context/attachment/attachmentTypes';
+import { ModelControlService } from '../application/modelControl/modelControlService';
+import type { PermissionMode } from '../domain/session';
 
 export class YisiChatViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private disposables: vscode.Disposable[] = [];
   private readonly runs: ChatRunCoordinator;
-  private readonly pendingContexts = new Map<string, ExplicitFileContext[]>();
+  private readonly pendingContexts = new Map<string, AttachmentOutcome[]>();
 
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly sessions: SessionService,
     private readonly providerSetup: ProviderSetupWizard,
     chat: ChatService,
-    private readonly contextPicker: ExplicitContextPicker
+    private readonly contextPicker: AttachmentContextPicker,
+    private readonly modelControl: ModelControlService
   ) {
     this.runs = new ChatRunCoordinator(chat, event => {
       void this.view?.webview.postMessage(event);
@@ -89,15 +94,23 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
         return;
 
       case 'renameSession':
-        await this.sessions.renameSession(message.sessionId, message.title);
-        await this.publishState();
+        try {
+          await this.sessions.renameSession(message.sessionId, message.title);
+          await this.publishState();
+        } catch (error) {
+          this.reportSessionError('Failed to rename session.', error);
+        }
         return;
 
       case 'deleteSession':
         if (!this.requireIdle()) return;
-        await this.sessions.deleteSession(message.sessionId);
-        this.pendingContexts.delete(message.sessionId);
-        await this.publishState();
+        try {
+          await this.sessions.deleteSession(message.sessionId);
+          this.pendingContexts.delete(message.sessionId);
+          await this.publishState();
+        } catch (error) {
+          this.reportSessionError('Failed to delete session.', error);
+        }
         return;
 
       case 'openSettings':
@@ -105,20 +118,50 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
         await this.openModelSettings();
         return;
 
-      case 'selectModel':
+      case 'modelControl.selectModel':
         if (!this.requireIdle()) return;
-        await this.providerSetup.pickModelForSession();
+        await this.applyModelSelection(message.providerId, message.modelId);
         await this.publishState();
         return;
 
-      case 'selectPermission':
+      case 'modelControl.setReasoning':
         if (!this.requireIdle()) return;
-        await this.selectPermissionMode();
+        await this.sessions.setReasoningEffort(message.value);
+        await this.publishState();
+        return;
+
+      case 'modelControl.setSpeed':
+        if (!this.requireIdle()) return;
+        await this.sessions.setSpeedMode(message.value);
+        await this.publishState();
+        return;
+
+      case 'modelControl.setTemperature':
+        if (!this.requireIdle()) return;
+        await this.sessions.setTemperature(message.value);
+        await this.publishState();
+        return;
+
+      case 'modelControl.setMaxTokens':
+        if (!this.requireIdle()) return;
+        await this.sessions.setMaxTokens(message.value);
+        await this.publishState();
+        return;
+
+      case 'permission.setMode':
+        if (!this.requireIdle()) return;
+        await this.applyPermissionMode(message.value);
+        await this.publishState();
         return;
 
       case 'addContext':
         if (!this.requireIdle()) return;
         await this.addFileContext();
+        return;
+
+      case 'removeAttachment':
+        if (!this.requireIdle()) return;
+        this.removeAttachment(message.attachmentId);
         return;
 
       case 'clearContext':
@@ -144,7 +187,8 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
 
   private async runChat(text: string): Promise<void> {
     const sessionId = this.sessions.getActiveSession().id;
-    const contexts = this.pendingContexts.get(sessionId) ?? [];
+    const contexts: ExplicitFileContext[] = (this.pendingContexts.get(sessionId) ?? [])
+      .flatMap(outcome => outcome.context ? [outcome.context as ExplicitFileContext] : []);
     this.pendingContexts.delete(sessionId);
     await this.publishContextState();
     await this.runs.start(text, contexts);
@@ -152,38 +196,42 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async addFileContext(): Promise<void> {
-    const context = await this.contextPicker.pickFile();
-    if (!context) return;
+    const outcomes = await this.contextPicker.pickAttachments();
+    if (outcomes.length === 0) return;
     const sessionId = this.sessions.getActiveSession().id;
     const existing = this.pendingContexts.get(sessionId) ?? [];
-    const next = existing.filter(item => (
-      item.reference.path !== context.reference.path
-      || item.reference.workspaceFolderUri !== context.reference.workspaceFolderUri
-    ));
-    next.push(context);
-    this.pendingContexts.set(sessionId, next.slice(-4));
+    const addedKeys = new Set(outcomes.map(attachmentKey));
+    const kept = existing.filter(item => !addedKeys.has(attachmentKey(item)));
+    const next = [...kept, ...outcomes];
+    this.pendingContexts.set(sessionId, next.slice(-ATTACHMENT_LIMITS.maxAttachmentsPerSession));
     await this.publishContextState();
   }
 
-  private async selectPermissionMode(): Promise<void> {
-    const current = this.sessions.getActiveSession().permissionMode;
-    const options = [
-      { label: 'Plan', description: 'Read and analyze only', mode: 'plan' as const },
-      { label: 'Manual', description: 'Ask before every workspace edit', mode: 'manual' as const },
-      { label: 'Accept Edits', description: 'Apply bounded file edits automatically', mode: 'acceptEdits' as const },
-      { label: 'Auto', description: 'Apply bounded edits; privileged actions still require approval', mode: 'auto' as const },
-      { label: 'Full Access', description: 'Broad permission mode; hard safety confirmations remain', mode: 'fullAccess' as const }
-    ];
-    const selected = await vscode.window.showQuickPick(options.map(option => ({
-      ...option,
-      picked: option.mode === current
-    })), {
-      title: 'Yisi AI permission mode',
-      placeHolder: 'Choose how Yisi may act in this session'
-    });
-    if (!selected) return;
-    await this.sessions.setPermissionMode(selected.mode);
-    await this.publishState();
+  private removeAttachment(attachmentId: string): void {
+    const sessionId = this.sessions.getActiveSession().id;
+    const existing = this.pendingContexts.get(sessionId);
+    if (!existing) return;
+    this.pendingContexts.set(sessionId, existing.filter(item => item.view.id !== attachmentId));
+    void this.publishContextState();
+  }
+
+  private async applyPermissionMode(mode: PermissionMode): Promise<void> {
+    const active = this.sessions.getActiveSession();
+    if (mode === 'fullAccess' && active.permissionMode !== 'fullAccess') {
+      const choice = await vscode.window.showWarningMessage(
+        'Enable Full Access for this session?',
+        { modal: true, detail: 'Yisi may perform broad workspace and terminal actions without routine approval. Critical safety confirmations remain.' },
+        'Enable Full Access',
+        'Cancel'
+      );
+      if (choice !== 'Enable Full Access') return;
+    }
+    await this.sessions.setPermissionMode(mode);
+  }
+
+  private async applyModelSelection(providerId: string, modelId: string): Promise<void> {
+    const current = this.sessions.getActiveSession().model;
+    await this.sessions.setModelSelection({ ...current, providerId, modelId });
   }
 
   private requireIdle(): boolean {
@@ -193,6 +241,14 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
       message: 'Stop the current run before changing sessions or models.'
     });
     return false;
+  }
+
+  /** Surface a specific operation error (rename/delete) instead of the generic
+   * session fallback, while still logging the real cause to the Output channel. */
+  private reportSessionError(message: string, error: unknown): void {
+    const diagnostic = error instanceof Error ? `${error.name}: ${error.message}` : 'Unknown session error';
+    console.error(`[Yisi AI] ${diagnostic}`);
+    void this.view?.webview.postMessage({ type: 'sessionError', message });
   }
 
   private async receiveMessage(value: unknown): Promise<void> {
@@ -215,13 +271,17 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
       activeSession: this.sessions.getActiveSession()
     });
     await this.publishContextState();
+    await this.view?.webview.postMessage({
+      type: 'modelControl.state',
+      state: await this.modelControl.getState()
+    });
   }
 
   private async publishContextState(): Promise<void> {
     const sessionId = this.sessions.getActiveSession().id;
     await this.view?.webview.postMessage({
       type: 'contextState',
-      contexts: (this.pendingContexts.get(sessionId) ?? []).map(context => context.reference)
+      contexts: (this.pendingContexts.get(sessionId) ?? []).map(outcome => outcome.view)
     });
   }
 
@@ -230,4 +290,9 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
       disposable.dispose();
     }
   }
+}
+
+/** Stable identity for a pending attachment used for de-duplication. */
+function attachmentKey(outcome: AttachmentOutcome): string {
+  return `${outcome.view.workspaceFolderUri}|${outcome.view.relativePath}`;
 }

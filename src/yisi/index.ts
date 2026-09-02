@@ -5,12 +5,17 @@ import { ChatService } from './application/chat/chatService';
 import { LegacySessionMetadata, SessionService } from './application/session/sessionService';
 import { ProviderCatalog, ProviderFactory } from './application/provider/providerCatalog';
 import { OpenAICompatibleProvider } from './infrastructure/llm/openAICompatibleProvider';
+import { AnthropicProvider } from './infrastructure/llm/anthropicProvider';
 import { JsonSessionRepository } from './infrastructure/persistence/jsonSessionRepository';
 import { YisiChatViewProvider } from './ui/chatViewProvider';
+import { ModelControlService } from './application/modelControl/modelControlService';
 import { ProviderSetupWizard } from './vscode/provider/providerSetupWizard';
 import { VsCodeProviderConfigurationRepository } from './vscode/provider/vsCodeProviderConfigurationRepository';
 import { VsCodeSecretStore } from './vscode/provider/vsCodeSecretStore';
 import { VsCodeWorkspaceContextPicker } from './vscode/context/workspaceContextPicker';
+import { VsCodeAttachmentRehydrator } from './vscode/context/attachmentRehydrator';
+import { AttachmentService } from './application/attachment/attachmentService';
+import { createDefaultAttachmentRegistry } from './infrastructure/attachment/defaultAttachmentRegistry';
 import { selectLocalAgentWorkspace } from './vscode/context/localAgentWorkspace';
 import { NodeWorkspaceFileSystem } from './infrastructure/context/nodeWorkspaceFileSystem';
 import { WorkspaceContextService, createWorkspaceContextTools } from './application/context/workspaceContextService';
@@ -43,12 +48,29 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
   );
   await providerConfigurations.initialize();
   const providerFactory: ProviderFactory = {
-    create: (configuration, apiKey) => new OpenAICompatibleProvider({
-      id: configuration.id,
-      baseUrl: configuration.baseUrl,
-      apiKey,
-      toolCalling: configuration.capabilities.toolCalling
-    })
+    create: (configuration, apiKey) => {
+      const caps = configuration.capabilities;
+      if (configuration.kind === 'anthropic') {
+        return new AnthropicProvider({
+          id: configuration.id,
+          baseUrl: configuration.baseUrl,
+          apiKey,
+          models: configuration.models,
+          temperature: caps.temperature,
+          maxTokens: caps.maxTokens,
+          thinking: caps.reasoning?.mode === 'budget'
+        });
+      }
+      return new OpenAICompatibleProvider({
+        id: configuration.id,
+        baseUrl: configuration.baseUrl,
+        apiKey,
+        toolCalling: caps.toolCalling,
+        temperature: caps.temperature,
+        maxTokens: caps.maxTokens,
+        reasoningEffort: caps.reasoning?.mode === 'effort' || caps.reasoningEffort === true
+      });
+    }
   };
   const providerSetup = new ProviderSetupWizard(
     providerConfigurations,
@@ -59,13 +81,44 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
   await providerSetup.applyWorkspaceDefaultToActiveSession();
   const providerCatalog = new ProviderCatalog(providerConfigurations, secrets, process.env, providerFactory);
   const agentRunner = await createAgentRunner();
-  const chat = new ChatService(sessions, providerCatalog, agentRunner);
+  const modelControl = new ModelControlService(providerConfigurations, sessions, process.env);
+  const attachmentService = new AttachmentService(createDefaultAttachmentRegistry(), {
+    getVisionCapability: async () => {
+      try {
+        const model = sessions.getActiveSession().model;
+        if (!model.providerId || !model.modelId) {
+          return { modelSupported: false, transportSupported: false };
+        }
+        const provider = await providerCatalog.resolve(model.providerId);
+        const capabilities = await provider.capabilities(model.modelId);
+        // v0.1 has no image transport; model vision is read live from the
+        // provider so the warning names the correct layer.
+        return { modelSupported: capabilities.vision === true, transportSupported: false };
+      } catch {
+        return { modelSupported: false, transportSupported: false };
+      }
+    }
+  });
+  const chat = new ChatService(
+    sessions,
+    providerCatalog,
+    agentRunner,
+    () => {
+      const section = vscode.workspace.getConfiguration('yisiAI');
+      return {
+        enabled: section.get<boolean>('identityBypassEnabled', true),
+        extraKeywords: section.get<string[]>('identityBypassKeywords', [])
+      };
+    },
+    new VsCodeAttachmentRehydrator(attachmentService)
+  );
   const chatView = new YisiChatViewProvider(
     context.extensionUri,
     sessions,
     providerSetup,
     chat,
-    new VsCodeWorkspaceContextPicker()
+    new VsCodeWorkspaceContextPicker(attachmentService),
+    modelControl
   );
 
   context.subscriptions.push(

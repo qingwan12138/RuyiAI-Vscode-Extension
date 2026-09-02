@@ -2,9 +2,11 @@ import {
   AssistantMessage,
   ConversationContextReference,
   PermissionMode,
+  ReasoningPreset,
   SessionDocument,
   SessionStatus,
   SessionSummary,
+  SpeedMode,
   YisiSession,
   parseContextReferences,
   parseSessionDocument
@@ -108,6 +110,15 @@ export class SessionService {
       }));
   }
 
+  // Sessions that reference a given provider instance (active or not). Used to
+  // warn before deleting a provider; never used to mutate the sessions.
+  findByProvider(providerInstanceId: string): string[] {
+    const workspace = this.currentWorkspace();
+    return workspace.sessions
+      .filter(session => session.model.providerId === providerInstanceId)
+      .map(session => session.id);
+  }
+
   getActiveSession(): YisiSession {
     const workspace = this.currentWorkspace();
     const session = workspace.sessions.find(candidate => candidate.id === workspace.activeSessionId);
@@ -197,6 +208,44 @@ export class SessionService {
     return this.enqueue(() => this.mutate(workspace => {
       const session = this.activeSession(workspace.sessions, workspace.activeSessionId);
       session.model = { ...model };
+      session.updatedAt = this.now();
+    }));
+  }
+
+  setReasoningEffort(effort: ReasoningPreset): Promise<void> {
+    return this.enqueue(() => this.mutate(workspace => {
+      if (!isReasoningPreset(effort)) throw new SessionInputError('Reasoning preset is invalid.');
+      const session = this.activeSession(workspace.sessions, workspace.activeSessionId);
+      session.model = { ...session.model, reasoningEffort: effort };
+      session.updatedAt = this.now();
+    }));
+  }
+
+  setSpeedMode(mode: SpeedMode): Promise<void> {
+    return this.enqueue(() => this.mutate(workspace => {
+      if (!isSpeedMode(mode)) throw new SessionInputError('Speed mode is invalid.');
+      const session = this.activeSession(workspace.sessions, workspace.activeSessionId);
+      session.model = { ...session.model, speedMode: mode };
+      session.updatedAt = this.now();
+    }));
+  }
+
+  setTemperature(value: number): Promise<void> {
+    return this.enqueue(() => this.mutate(workspace => {
+      if (!isFinite(value) || value < 0 || value > 2) throw new SessionInputError('Temperature is invalid.');
+      const session = this.activeSession(workspace.sessions, workspace.activeSessionId);
+      session.model = { ...session.model, temperature: value };
+      session.updatedAt = this.now();
+    }));
+  }
+
+  setMaxTokens(value: number): Promise<void> {
+    return this.enqueue(() => this.mutate(workspace => {
+      if (!Number.isInteger(value) || value <= 0 || value > 1_000_000) {
+        throw new SessionInputError('Max tokens is invalid.');
+      }
+      const session = this.activeSession(workspace.sessions, workspace.activeSessionId);
+      session.model = { ...session.model, maxTokens: value };
       session.updatedAt = this.now();
     }));
   }
@@ -324,4 +373,17 @@ function isPermissionMode(value: unknown): value is PermissionMode {
     || value === 'acceptEdits'
     || value === 'auto'
     || value === 'fullAccess';
+}
+
+function isReasoningPreset(value: unknown): value is ReasoningPreset {
+  return value === 'auto'
+    || value === 'off'
+    || value === 'low'
+    || value === 'medium'
+    || value === 'high'
+    || value === 'xhigh';
+}
+
+function isSpeedMode(value: unknown): value is SpeedMode {
+  return value === 'standard' || value === 'fast';
 }

@@ -4,12 +4,13 @@ import {
   AgentConversationMessage,
   AgentRequest,
   AgentStreamEvent,
-  AgentToolCall
+  AgentToolCall,
+  RequestSampling
 } from '../../llm/types';
 import { PermissionEngine } from '../../permissions/permissionEngine';
 import { ToolRegistry } from './toolRegistry';
 
-export interface AgentLoopRequest {
+export interface AgentLoopRequest extends RequestSampling {
   model: string;
   messages: AgentConversationMessage[];
 }
@@ -89,10 +90,16 @@ export class AgentToolLoop {
       const toolCalls: AgentToolCall[] = [];
       const textDeltas: string[] = [];
       const callIds = new Set<string>();
+      const sampling = {
+        ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
+        ...(request.maxTokens !== undefined ? { maxTokens: request.maxTokens } : {}),
+        ...(request.reasoningPreset !== undefined ? { reasoningPreset: request.reasoningPreset } : {})
+      };
       for await (const event of this.provider.streamAgent({
         model: request.model,
         messages: structuredClone(messages),
-        tools: this.registry.definitions()
+        tools: this.registry.definitions(),
+        ...sampling
       }, signal)) {
         signal.throwIfAborted();
         if (event.type === 'textDelta') {

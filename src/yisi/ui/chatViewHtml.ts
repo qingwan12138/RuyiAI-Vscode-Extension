@@ -1,4 +1,16 @@
 import * as vscode from 'vscode';
+import {
+  modelControlButtonMarkup,
+  modelControlClientScript,
+  modelControlPopoverMarkup,
+  modelControlStyles
+} from './modelControlHtml';
+import {
+  permissionButtonMarkup,
+  permissionClientScript,
+  permissionPopoverMarkup,
+  permissionStyles
+} from './permissionHtml';
 
 export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
     const nonce = createNonce();
@@ -358,6 +370,69 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       gap: 1px;
     }
 
+    .session-edit-input {
+      min-width: 0;
+      width: 100%;
+      border: 1px solid var(--vscode-focusBorder);
+      border-radius: 5px;
+      padding: 4px 6px;
+      background: var(--vscode-input-background);
+      color: var(--vscode-input-foreground);
+      font: inherit;
+      font-size: 11px;
+    }
+
+    .session-edit-meta {
+      grid-column: 1 / -1;
+      color: var(--yisi-muted);
+      font-size: 9px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .session-confirm {
+      grid-column: 1 / -1;
+      display: grid;
+      gap: 3px;
+      padding: 2px 4px;
+    }
+
+    .session-confirm-title {
+      font-size: 11px;
+      font-weight: 500;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .session-confirm-text {
+      color: var(--yisi-muted);
+      font-size: 10px;
+    }
+
+    .session-confirm-actions {
+      display: flex;
+      gap: 5px;
+      align-items: center;
+    }
+
+    .session-confirm-button {
+      height: 22px;
+      padding: 0 9px;
+      border: 1px solid var(--yisi-border);
+      border-radius: 5px;
+      background: transparent;
+      color: var(--vscode-foreground);
+      cursor: pointer;
+      font-size: 10px;
+    }
+
+    .session-confirm-button.danger {
+      border-color: #c0392b;
+      color: var(--vscode-editorError-foreground, #c0392b);
+    }
+
     .composer-wrap {
       padding: 8px 10px 10px;
       background:
@@ -403,16 +478,90 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
 
     .context-chip {
       max-width: 100%;
-      padding: 3px 7px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 4px 3px 8px;
       border: 1px solid var(--yisi-border);
       border-radius: 999px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
       background: var(--yisi-surface);
       color: var(--yisi-muted);
       font-size: 10px;
+      line-height: 1;
+    }
+
+    .context-chip.ready {
+      border-color: var(--yisi-border);
+    }
+
+    .context-chip.warning {
+      border-color: #b58900;
+      color: var(--vscode-editorWarning-foreground, #b58900);
+    }
+
+    .context-chip.unsupported,
+    .context-chip.error {
+      border-color: #c0392b;
+      color: var(--vscode-editorError-foreground, #c0392b);
+    }
+
+    .chip-kind {
+      flex: none;
+      font-weight: 600;
+      opacity: .75;
+      text-transform: uppercase;
+    }
+
+    .chip-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .chip-msg {
+      max-width: 150px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      opacity: .85;
+    }
+
+    .chip-remove {
+      flex: none;
+      display: inline-grid;
+      place-items: center;
+      width: 14px;
+      height: 14px;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      color: inherit;
+      font-size: 12px;
+      line-height: 1;
       cursor: pointer;
+      opacity: .7;
+    }
+
+    .chip-remove:hover {
+      opacity: 1;
+      background: var(--vscode-toolbar-hoverBackground);
+    }
+
+    .chip-clear {
+      align-self: center;
+      padding: 2px 6px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--yisi-muted);
+      font-size: 10px;
+      cursor: pointer;
+    }
+
+    .chip-clear:hover {
+      color: var(--vscode-foreground);
+      background: var(--vscode-toolbar-hoverBackground);
     }
 
     .message-context {
@@ -501,15 +650,13 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
         grid-template-columns: 1fr;
       }
 
-      .control-button.model .control-label {
-        display: none;
-      }
-
       .welcome {
         padding-left: 12px;
         padding-right: 12px;
       }
     }
+  ${modelControlStyles()}
+  ${permissionStyles()}
   </style>
 </head>
 <body>
@@ -564,24 +711,30 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
             </button>
           </div>
           <div class="composer-right">
-            <button class="control-button model" id="modelButton" type="button" title="Choose model">
-              <span class="control-label">Model</span>
-              <span class="chevron">⌄</span>
-            </button>
-            <button class="control-button" id="permissionButton" type="button" title="Permission mode">
-              <span class="control-label">Plan</span>
-              <span class="chevron">⌄</span>
-            </button>
+            ${modelControlButtonMarkup()}
+            ${permissionButtonMarkup()}
             <button class="send-button" id="sendButton" type="button" aria-label="Send" disabled>↑</button>
           </div>
         </div>
       </div>
       <div class="status-line" id="status" aria-live="polite"></div>
+      ${modelControlPopoverMarkup()}
+      ${permissionPopoverMarkup()}
     </footer>
   </div>
 
   <script nonce="${nonce}">
+${modelControlClientScript()}
+  </script>
+
+  <script nonce="${nonce}">
+${permissionClientScript()}
+  </script>
+
+  <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
+    const modelControl = createYisiModelControl(vscode);
+    const permissionControl = createYisiPermissionControl(vscode);
 
     const input = document.getElementById('promptInput');
     const sendButton = document.getElementById('sendButton');
@@ -591,15 +744,16 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     const sessionTitle = document.getElementById('sessionTitle');
     const historyPanel = document.getElementById('historyPanel');
     const historyList = document.getElementById('historyList');
-    const modelButton = document.getElementById('modelButton');
-    const modelLabel = modelButton.querySelector('.control-label');
-    const permissionLabel = document.getElementById('permissionButton').querySelector('.control-label');
     const contextChips = document.getElementById('contextChips');
     let sessionSummaries = [];
     let activeSession;
     let isRunning = false;
     let transientAssistant;
     let streamedText = '';
+    // Pure Webview UI state: which session row is being renamed inline or asked
+    // to confirm deletion. Never written back into the Session domain.
+    let editingSessionId = null;
+    let confirmDeleteSessionId = null;
 
     function updateSendState() {
       sendButton.disabled = !isRunning && input.value.trim().length === 0;
@@ -624,70 +778,217 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     function renderHistory() {
       historyList.replaceChildren();
       sessionSummaries.forEach(summary => {
-        const row = document.createElement('div');
-        row.className = 'session-row' + (summary.active ? ' active' : '');
-
-        const select = document.createElement('button');
-        select.type = 'button';
-        select.className = 'session-select';
-        select.setAttribute('aria-current', summary.active ? 'page' : 'false');
-        const title = document.createElement('span');
-        title.className = 'session-select-title';
-        title.textContent = summary.title || 'New Chat';
-        const meta = document.createElement('span');
-        meta.className = 'session-select-meta';
-        meta.textContent = new Date(summary.updatedAt).toLocaleString();
-        select.append(title, meta);
-        select.addEventListener('click', () => {
-          vscode.postMessage({ type: 'switchSession', sessionId: summary.id });
-          status.textContent = 'Switching session…';
-        });
-
-        const actions = document.createElement('div');
-        actions.className = 'session-actions';
-        const rename = document.createElement('button');
-        rename.type = 'button';
-        rename.className = 'icon-button';
-        rename.title = 'Rename session';
-        rename.setAttribute('aria-label', 'Rename ' + (summary.title || 'session'));
-        rename.textContent = '✎';
-        rename.addEventListener('click', () => {
-          const nextTitle = window.prompt('Rename session', summary.title || 'New Chat');
-          if (nextTitle && nextTitle.trim()) {
-            vscode.postMessage({ type: 'renameSession', sessionId: summary.id, title: nextTitle });
-            status.textContent = 'Renaming session…';
-          }
-        });
-
-        const remove = document.createElement('button');
-        remove.type = 'button';
-        remove.className = 'icon-button';
-        remove.title = 'Delete session';
-        remove.setAttribute('aria-label', 'Delete ' + (summary.title || 'session'));
-        remove.textContent = '×';
-        remove.addEventListener('click', () => {
-          if (window.confirm('Delete this session and its saved messages?')) {
-            vscode.postMessage({ type: 'deleteSession', sessionId: summary.id, confirmed: true });
-            status.textContent = 'Deleting session…';
-          }
-        });
-
-        actions.append(rename, remove);
-        row.append(select, actions);
-        historyList.appendChild(row);
+        if (summary.id === editingSessionId) {
+          historyList.appendChild(renderEditingRow(summary));
+          return;
+        }
+        if (summary.id === confirmDeleteSessionId) {
+          historyList.appendChild(renderConfirmRow(summary));
+          return;
+        }
+        historyList.appendChild(renderSessionRow(summary));
       });
+    }
+
+    function renderSessionRow(summary) {
+      const row = document.createElement('div');
+      row.className = 'session-row' + (summary.active ? ' active' : '');
+
+      const select = document.createElement('button');
+      select.type = 'button';
+      select.className = 'session-select';
+      select.setAttribute('aria-current', summary.active ? 'page' : 'false');
+      const title = document.createElement('span');
+      title.className = 'session-select-title';
+      title.textContent = summary.title || 'New Chat';
+      const meta = document.createElement('span');
+      meta.className = 'session-select-meta';
+      meta.textContent = new Date(summary.updatedAt).toLocaleString();
+      select.append(title, meta);
+      select.addEventListener('click', () => {
+        vscode.postMessage({ type: 'switchSession', sessionId: summary.id });
+        status.textContent = 'Switching session…';
+      });
+
+      const actions = document.createElement('div');
+      actions.className = 'session-actions';
+      const rename = document.createElement('button');
+      rename.type = 'button';
+      rename.className = 'icon-button';
+      rename.title = 'Rename session';
+      rename.setAttribute('aria-label', 'Rename ' + (summary.title || 'session'));
+      rename.textContent = '✎';
+      rename.addEventListener('click', event => {
+        event.stopPropagation();
+        beginRename(summary);
+      });
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'icon-button';
+      remove.title = 'Delete session';
+      remove.setAttribute('aria-label', 'Delete ' + (summary.title || 'session'));
+      remove.textContent = '🗑';
+      remove.addEventListener('click', event => {
+        event.stopPropagation();
+        beginDelete(summary);
+      });
+
+      actions.append(rename, remove);
+      row.append(select, actions);
+      return row;
+    }
+
+    function renderEditingRow(summary) {
+      const row = document.createElement('div');
+      row.className = 'session-row' + (summary.active ? ' active' : '');
+
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'session-edit-input';
+      input.value = summary.title || 'New Chat';
+      input.setAttribute('aria-label', 'Session title');
+      input.addEventListener('click', event => event.stopPropagation());
+      input.addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          commitRename(summary, input.value);
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          cancelRename();
+        }
+      });
+      // Clicking the in-row save/cancel buttons prevents default on mousedown so
+      // the input keeps focus and this blur only fires when the user clicks away,
+      // which reverts without submitting (no double renameSession).
+      input.addEventListener('blur', () => {
+        if (editingSessionId === summary.id) cancelRename();
+      });
+
+      const actions = document.createElement('div');
+      actions.className = 'session-actions';
+      const save = document.createElement('button');
+      save.type = 'button';
+      save.className = 'icon-button';
+      save.title = 'Save';
+      save.setAttribute('aria-label', 'Save session title');
+      save.textContent = '✓';
+      save.addEventListener('mousedown', event => event.preventDefault());
+      save.addEventListener('click', event => {
+        event.stopPropagation();
+        commitRename(summary, input.value);
+      });
+
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'icon-button';
+      cancel.title = 'Cancel';
+      cancel.setAttribute('aria-label', 'Cancel rename');
+      cancel.textContent = '×';
+      cancel.addEventListener('mousedown', event => event.preventDefault());
+      cancel.addEventListener('click', event => {
+        event.stopPropagation();
+        cancelRename();
+      });
+
+      actions.append(save, cancel);
+
+      const meta = document.createElement('div');
+      meta.className = 'session-edit-meta';
+      meta.textContent = new Date(summary.updatedAt).toLocaleString();
+
+      row.append(input, actions, meta);
+      return row;
+    }
+
+    function renderConfirmRow(summary) {
+      const row = document.createElement('div');
+      row.className = 'session-row' + (summary.active ? ' active' : '');
+
+      const confirm = document.createElement('div');
+      confirm.className = 'session-confirm';
+
+      const title = document.createElement('div');
+      title.className = 'session-confirm-title';
+      title.textContent = summary.title || 'New Chat';
+
+      const text = document.createElement('div');
+      text.className = 'session-confirm-text';
+      text.textContent = 'Delete this chat?';
+
+      const actions = document.createElement('div');
+      actions.className = 'session-confirm-actions';
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'session-confirm-button';
+      cancel.textContent = 'Cancel';
+      cancel.title = 'Cancel delete';
+      cancel.addEventListener('click', event => {
+        event.stopPropagation();
+        cancelDelete();
+      });
+
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'session-confirm-button danger';
+      del.textContent = 'Delete';
+      del.title = 'Delete session';
+      del.addEventListener('click', event => {
+        event.stopPropagation();
+        confirmDeleteSessionId = null;
+        vscode.postMessage({ type: 'deleteSession', sessionId: summary.id, confirmed: true });
+        status.textContent = 'Deleting session…';
+      });
+
+      actions.append(cancel, del);
+      confirm.append(title, text, actions);
+      row.append(confirm);
+      return row;
+    }
+
+    function beginRename(summary) {
+      confirmDeleteSessionId = null;
+      editingSessionId = summary.id;
+      renderHistory();
+      const input = historyList.querySelector('.session-edit-input');
+      if (input) {
+        input.focus();
+        input.select();
+      }
+    }
+
+    function beginDelete(summary) {
+      editingSessionId = null;
+      confirmDeleteSessionId = summary.id;
+      renderHistory();
+    }
+
+    function commitRename(summary, rawTitle) {
+      if (editingSessionId !== summary.id) return;
+      const title = rawTitle.trim();
+      editingSessionId = null;
+      if (title.length > 0) {
+        vscode.postMessage({ type: 'renameSession', sessionId: summary.id, title });
+        status.textContent = 'Renaming session…';
+      }
+      renderHistory();
+    }
+
+    function cancelRename() {
+      if (!editingSessionId) return;
+      editingSessionId = null;
+      renderHistory();
+    }
+
+    function cancelDelete() {
+      if (!confirmDeleteSessionId) return;
+      confirmDeleteSessionId = null;
+      renderHistory();
     }
 
     function renderActiveSession() {
       if (!activeSession) return;
       sessionTitle.textContent = activeSession.title || 'New Chat';
-      modelLabel.textContent = activeSession.model && activeSession.model.modelId
-        ? activeSession.model.modelId
-        : 'Model';
-      const permissionLabels = {
-        plan: 'Plan', manual: 'Manual', acceptEdits: 'Accept Edits', auto: 'Auto', fullAccess: 'Full Access'
-      };
-      permissionLabel.textContent = permissionLabels[activeSession.permissionMode] || 'Plan';
       conversation.replaceChildren();
       transientAssistant = undefined;
       streamedText = '';
@@ -724,16 +1025,75 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
 
     function renderContexts(contexts) {
       contextChips.replaceChildren();
-      (Array.isArray(contexts) ? contexts : []).forEach(context => {
-        if (!context || typeof context.path !== 'string') return;
-        const chip = document.createElement('button');
-        chip.type = 'button';
-        chip.className = 'context-chip';
-        chip.textContent = '@ ' + context.path;
-        chip.title = 'Clear attached context';
-        chip.addEventListener('click', () => vscode.postMessage({ type: 'clearContext' }));
+      const list = Array.isArray(contexts) ? contexts : [];
+      if (list.length === 0) return;
+      list.forEach(attachment => {
+        if (!attachment || typeof attachment.name !== 'string') return;
+        const chip = document.createElement('span');
+        chip.className = 'context-chip ' + attachmentStatus(attachment);
+
+        const kind = document.createElement('span');
+        kind.className = 'chip-kind';
+        kind.textContent = kindGlyph(attachment.kind);
+
+        const name = document.createElement('span');
+        name.className = 'chip-name';
+        name.textContent = '@ ' + attachment.name;
+
+        chip.append(kind, name);
+        if (attachment.message) {
+          const message = document.createElement('span');
+          message.className = 'chip-msg';
+          message.textContent = attachment.message;
+          chip.appendChild(message);
+        }
+        chip.title = attachmentTitle(attachment);
+
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'chip-remove';
+        remove.setAttribute('aria-label', 'Remove ' + attachment.name);
+        remove.title = 'Remove';
+        remove.textContent = '×';
+        remove.addEventListener('click', () => {
+          if (attachment.id) vscode.postMessage({ type: 'removeAttachment', attachmentId: attachment.id });
+        });
+        chip.appendChild(remove);
         contextChips.appendChild(chip);
       });
+
+      const clear = document.createElement('button');
+      clear.type = 'button';
+      clear.className = 'chip-clear';
+      clear.textContent = 'Clear';
+      clear.title = 'Remove all attached files';
+      clear.addEventListener('click', () => vscode.postMessage({ type: 'clearContext' }));
+      contextChips.appendChild(clear);
+    }
+
+    function attachmentStatus(attachment) {
+      const status = attachment.status || 'ready';
+      return status === 'loading' ? 'warning' : status;
+    }
+
+    function kindGlyph(kind) {
+      const glyphs = {
+        text: 'txt', code: '<>', markdown: 'md', pdf: 'pdf',
+        document: 'doc', presentation: 'ppt', spreadsheet: 'xls',
+        notebook: 'nb', image: 'img', archive: 'zip', unsupported: 'bin'
+      };
+      return glyphs[kind] || 'file';
+    }
+
+    function attachmentTitle(attachment) {
+      const label = attachment.location === 'external'
+        ? (attachment.relativePath || attachment.name) + ' (external · read-only)'
+        : attachment.relativePath || attachment.name;
+      const details = [
+        label,
+        attachment.message
+      ].filter(value => value && typeof value === 'string');
+      return details.join(' — ');
     }
 
     function submit() {
@@ -778,12 +1138,10 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
 
     document.getElementById('closeHistory').addEventListener('click', () => showHistory(false));
 
-    modelButton.addEventListener('click', () => {
-      vscode.postMessage({ type: 'selectModel' });
-    });
-
-    document.getElementById('permissionButton').addEventListener('click', () => {
-      vscode.postMessage({ type: 'selectPermission' });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && confirmDeleteSessionId) {
+        cancelDelete();
+      }
     });
 
     document.getElementById('addContext').addEventListener('click', () => {
@@ -805,12 +1163,21 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       if (message.type === 'sessionState') {
         sessionSummaries = Array.isArray(message.sessions) ? message.sessions : [];
         activeSession = message.activeSession;
+        // Drop stale edit/confirm UI state if the session vanished server-side.
+        const ids = new Set(sessionSummaries.map(summary => summary.id));
+        if (editingSessionId && !ids.has(editingSessionId)) editingSessionId = null;
+        if (confirmDeleteSessionId && !ids.has(confirmDeleteSessionId)) confirmDeleteSessionId = null;
         renderActiveSession();
+        if (activeSession) permissionControl.setMode(activeSession.permissionMode);
         renderHistory();
         status.textContent = '';
         isRunning = activeSession && activeSession.status === 'running';
         updateSendState();
         input.focus();
+      }
+
+      if (message.type === 'modelControl.state') {
+        modelControl.updateState(message.state);
       }
 
       if (message.type === 'assistantStreamStarted') {
