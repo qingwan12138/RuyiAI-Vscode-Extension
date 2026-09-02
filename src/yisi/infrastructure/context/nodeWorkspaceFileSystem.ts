@@ -175,6 +175,24 @@ export class NodeWorkspaceFileSystem implements FileSystemPort, WorkspaceWritePo
     return { path: this.relative(target), sha256: sha256(content), bytes: content.byteLength };
   }
 
+  /**
+   * Raw file bytes for the attachment pipeline, without the UTF-8 text decoding
+   * that {@link readFile} applies. Containment, symlink realpath and size checks
+   * are identical to readFile so attachments cannot escape the workspace.
+   */
+  async readFileBytes(
+    relativePath: string,
+    signal?: AbortSignal,
+    limitBytes = 8 * 1024 * 1024
+  ): Promise<Uint8Array> {
+    signal?.throwIfAborted();
+    const target = await this.resolveExisting(relativePath, false);
+    const stat = await fs.stat(target);
+    if (!stat.isFile()) throw new WorkspaceContentError('Workspace path is not a file.');
+    if (stat.size > limitBytes) throw new WorkspaceLimitError('Workspace file exceeds the attachment size limit.');
+    return readBounded(target, limitBytes, signal);
+  }
+
   async listDirectory(relativePath: string, signal?: AbortSignal): Promise<WorkspaceDirectoryEntry[]> {
     signal?.throwIfAborted();
     const target = await this.resolveExisting(relativePath, true);
@@ -319,6 +337,32 @@ export class NodeWorkspaceFileSystem implements FileSystemPort, WorkspaceWritePo
     this.assertWithinRoot(target);
     return relative.split(path.sep).join('/');
   }
+}
+
+/**
+ * Reads a single file outside the workspace root by its absolute filesystem
+ * path. Used only for user-explicitly-selected external attachments, which are
+ * read-only context (the agent's workspace ports reject absolute paths, so these
+ * files can never be edited). Same realpath + size guards as readFileBytes,
+ * minus the root containment.
+ */
+export async function readExternalFileBytes(
+  absolutePath: string,
+  signal?: AbortSignal,
+  limitBytes = 8 * 1024 * 1024
+): Promise<Uint8Array> {
+  signal?.throwIfAborted();
+  if (!absolutePath || absolutePath.includes('\0')) {
+    throw new WorkspaceBoundaryError('An absolute file path is required.');
+  }
+  if (!(path.isAbsolute(absolutePath) || path.win32.isAbsolute(absolutePath) || path.posix.isAbsolute(absolutePath))) {
+    throw new WorkspaceBoundaryError('An absolute file path is required.');
+  }
+  const target = await fs.realpath(absolutePath);
+  const stat = await fs.stat(target);
+  if (!stat.isFile()) throw new WorkspaceContentError('External path is not a file.');
+  if (stat.size > limitBytes) throw new WorkspaceLimitError('External file exceeds the attachment size limit.');
+  return readBounded(target, limitBytes, signal);
 }
 
 async function readBounded(target: string, limit: number, signal?: AbortSignal): Promise<Uint8Array> {

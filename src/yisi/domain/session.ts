@@ -1,9 +1,18 @@
 export type PermissionMode = 'plan' | 'manual' | 'acceptEdits' | 'auto' | 'fullAccess';
 export type SessionStatus = 'idle' | 'running' | 'interrupted' | 'blocked';
+export type ReasoningPreset = 'auto' | 'off' | 'low' | 'medium' | 'high' | 'xhigh';
+export type SpeedMode = 'standard' | 'fast';
 
 export interface SessionModelSelection {
   providerId: string;
   modelId: string;
+  // Unified user intent for reasoning. Provider adapters translate this into
+  // their own wire parameters; a value is only persisted after the user makes
+  // an explicit choice.
+  reasoningEffort?: ReasoningPreset;
+  speedMode?: SpeedMode;
+  temperature?: number;
+  maxTokens?: number;
 }
 
 export interface ExecutionWorkspaceBinding {
@@ -20,10 +29,24 @@ export interface UserMessage {
   contexts?: ConversationContextReference[];
 }
 
+export type AttachmentLocation = 'workspace' | 'external';
+
 export interface FileContextReference {
   type: 'file';
+  /**
+   * Workspace-relative POSIX path for workspace files; absolute filesystem path
+   * for external files. Only the basename is ever placed into model context, so
+   * this value never reaches the provider.
+   */
   path: string;
-  workspaceFolderUri: string;
+  /** Present for workspace files; absent for external files. */
+  workspaceFolderUri?: string;
+  /** Where the file lives. External files are read-only context, never editable
+   * by the agent's workspace tools. Absent on legacy references and treated as
+   * workspace for backward compatibility. */
+  location?: AttachmentLocation;
+  /** Absolute file:// URI for external files, used to re-locate them across turns. */
+  uri?: string;
 }
 
 export type ConversationContextReference = FileContextReference;
@@ -146,7 +169,7 @@ function parseSession(workspaceId: string, value: unknown): YisiSession {
     workspaceId: value.workspaceId,
     title: value.title,
     titleSource: value.titleSource,
-    model: { providerId: value.model.providerId, modelId: value.model.modelId },
+    model: parseModelSelection(value.model),
     permissionMode: value.permissionMode,
     executionWorkspace,
     createdAt: value.createdAt,
@@ -154,6 +177,39 @@ function parseSession(workspaceId: string, value: unknown): YisiSession {
     status: value.status,
     items: value.items.map(parseConversationItem)
   };
+}
+
+function parseModelSelection(value: Record<string, unknown>): SessionModelSelection {
+  const model: SessionModelSelection = {
+    providerId: value.providerId as string,
+    modelId: value.modelId as string
+  };
+  if (value.reasoningEffort !== undefined) {
+    if (!isOneOf(value.reasoningEffort, ['auto', 'off', 'low', 'medium', 'high', 'xhigh'])) throw malformed();
+    model.reasoningEffort = value.reasoningEffort;
+  }
+  if (value.speedMode !== undefined) {
+    if (!isOneOf(value.speedMode, ['standard', 'fast'])) throw malformed();
+    model.speedMode = value.speedMode;
+  }
+  if (value.temperature !== undefined) {
+    if (!isFiniteNumber(value.temperature) || (value.temperature as number) < 0 || (value.temperature as number) > 2) {
+      throw malformed();
+    }
+    model.temperature = value.temperature as number;
+  }
+  if (value.maxTokens !== undefined) {
+    if (
+      typeof value.maxTokens !== 'number'
+      || !Number.isInteger(value.maxTokens)
+      || (value.maxTokens as number) <= 0
+      || (value.maxTokens as number) > 1_000_000
+    ) {
+      throw malformed();
+    }
+    model.maxTokens = value.maxTokens as number;
+  }
+  return model;
 }
 
 function parseConversationItem(value: unknown): ConversationItem {
@@ -190,14 +246,20 @@ export function parseContextReferences(value: unknown): ConversationContextRefer
   return value.map(context => {
     if (
       !isRecord(context)
-      || !hasExactKeys(context, ['type', 'path', 'workspaceFolderUri'])
+      || !hasOnlyKeys(context, ['type', 'path', 'workspaceFolderUri', 'location', 'uri'])
       || context.type !== 'file'
       || !isString(context.path)
-      || !isString(context.workspaceFolderUri)
+      || (context.workspaceFolderUri !== undefined && !isString(context.workspaceFolderUri))
+      || (context.location !== undefined && !isOneOf(context.location, ['workspace', 'external']))
+      || (context.uri !== undefined && !isString(context.uri))
     ) {
       throw malformed();
     }
-    return { type: 'file', path: context.path, workspaceFolderUri: context.workspaceFolderUri };
+    const reference: FileContextReference = { type: 'file', path: context.path };
+    if (context.workspaceFolderUri !== undefined) reference.workspaceFolderUri = context.workspaceFolderUri;
+    if (context.location !== undefined) reference.location = context.location;
+    if (context.uri !== undefined) reference.uri = context.uri;
+    return reference;
   });
 }
 
@@ -213,14 +275,16 @@ function isTimestamp(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
 function isOneOf<T extends string>(value: unknown, allowed: readonly T[]): value is T {
   return typeof value === 'string' && allowed.includes(value as T);
 }
 
-function hasExactKeys(value: Record<string, unknown>, expected: string[]): boolean {
-  const actual = Object.keys(value).sort();
-  const keys = [...expected].sort();
-  return actual.length === keys.length && actual.every((key, index) => key === keys[index]);
+function hasOnlyKeys(value: Record<string, unknown>, allowed: string[]): boolean {
+  return Object.keys(value).every(key => allowed.includes(key));
 }
 
 function malformed(): SessionSchemaError {
