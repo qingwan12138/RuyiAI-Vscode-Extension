@@ -1,13 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-  <!-- Filled version of the Yisi AI brand mark for the icon font: diamond ring +
-       center node + 3 traces. Font glyphs must be filled; the ring hole uses
-       opposite path winding (non-zero), which font tools honor. Keep in sync
-       with media/yisi-tech.svg. Swap + `npm run refresh:icons` to change. -->
+  <!-- Filled "tech diamond" for the icon font, matching media/yisi-tech.svg
+       (diamond ring + center node + 3 traces). Non-zero winding keeps the ring
+       hole. Swap + `npm run refresh:icons` to change. -->
   <path fill="#000" fill-rule="nonzero"
     d="M12 2 L22 12 L12 22 L2 12 Z
-       M12 4.6 L4.6 12 L12 19.4 L19.4 12 Z
-       M12 10.7 L13.3 12 L12 13.3 L10.7 12 Z
-       M11.55 6.6 L12.45 6.6 L12.45 12 L11.55 12 Z
-       M12 11.55 L16.3 11.55 L16.3 12.45 L12 12.45 Z
-       M12.35 12.35 L8.95 15.95 L8.25 15.25 L11.65 11.65 Z"/>
+       M12 4.8 L4.8 12 L12 19.2 L19.2 12 Z
+       M12 10.4 L13.6 12 L12 13.6 L10.4 12 Z
+       M11.0 6.2 L13.0 6.2 L13.0 12 L11.0 12 Z
+       M12 11.0 L16.6 11.0 L16.6 13.0 L12 13.0 Z
+       M12.5 12.5 L8.9 16.1 L7.9 15.1 L11.5 11.5 Z"/>
 </svg>
