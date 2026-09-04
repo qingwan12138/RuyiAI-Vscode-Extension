@@ -84,6 +84,8 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
 
     .app {
       height: 100vh;
+      width: 100%;
+      min-width: 0;
       display: grid;
       grid-template-rows: 40px minmax(0, 1fr) auto;
     }
@@ -142,6 +144,7 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
 
     .content {
       min-height: 0;
+      min-width: 0;
       overflow: auto;
       display: flex;
       flex-direction: column;
@@ -291,6 +294,7 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
 
     .conversation {
       display: none;
+      min-width: 0;
       padding: 12px 12px 20px;
     }
 
@@ -339,7 +343,14 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     .message pre.md-code code { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.92em; white-space: pre; }
     .message .md-table-wrap { overflow-x: auto; margin: 0 0 6px; }
     .message table { border-collapse: collapse; min-width: 100%; }
-    .message th, .message td { border: 1px solid var(--yisi-border); padding: 4px 6px; text-align: left; vertical-align: top; }
+    .message th, .message td {
+      border: 1px solid var(--yisi-border);
+      padding: 4px 6px;
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
     .message th { background: var(--yisi-surface-hover); font-weight: 600; }
     .message blockquote.md-quote { margin: 4px 0; padding: 2px 8px; border-left: 2px solid var(--yisi-border); color: var(--yisi-muted); }
     .message hr.md-hr { border: 0; border-top: 1px solid var(--yisi-border); margin: 8px 0; }
@@ -537,6 +548,8 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     }
 
     .composer {
+      min-width: 0;
+      max-width: 100%;
       border: 1px solid var(--vscode-input-border, var(--yisi-border));
       border-radius: var(--yisi-radius-lg);
       background: var(--vscode-input-background);
@@ -679,6 +692,7 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       align-items: center;
       justify-content: space-between;
       gap: 6px;
+      flex-wrap: wrap;
     }
 
     .composer-left,
@@ -745,6 +759,43 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     .chevron {
       opacity: .72;
       font-size: 9px;
+    }
+
+    @media (max-width: 360px) {
+      .composer-footer {
+        padding: 4px 3px 4px;
+      }
+
+      .composer-left,
+      .composer-right {
+        gap: 2px;
+      }
+
+      .control-button {
+        padding: 0 6px;
+        max-width: none;
+      }
+
+      .conversation {
+        padding-left: 8px;
+        padding-right: 8px;
+      }
+
+      .message {
+        padding: 7px 8px;
+      }
+    }
+
+    @media (max-width: 300px) {
+      .ruyi-mark {
+        width: 76px;
+        height: 76px;
+      }
+
+      .welcome {
+        padding-left: 10px;
+        padding-right: 10px;
+      }
     }
 
     @media (max-width: 260px) {
