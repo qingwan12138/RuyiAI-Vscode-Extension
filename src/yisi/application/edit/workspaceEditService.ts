@@ -1,5 +1,7 @@
 import { YisiTool } from '../../domain/tool';
+import { randomUUID } from 'node:crypto';
 import {
+  FileSystemPort,
   WorkspaceDirectoryCreation,
   WorkspaceDirectoryCreationResult,
   WorkspaceFileDeletion,
@@ -15,6 +17,14 @@ import {
   WorkspaceWritePort
 } from '../../context/workspaceContext';
 import { DiagnosticProvider, DiagnosticSnapshot } from '../../domain/diagnostics';
+import {
+  EditJournalEntry,
+  JournalMutationKind,
+  MAX_JOURNAL_ENTRIES,
+  MAX_JOURNAL_TEXT_BYTES,
+  countBytes,
+  summarizeTextChange
+} from './editJournal';
 
 const MAX_PATH_CHARACTERS = 4_096;
 const MAX_REPLACEMENT_CHARACTERS = 65_536;
@@ -41,14 +51,23 @@ export type WorkspaceFileCreationToolResult = WorkspaceMutationToolResult<Worksp
 
 export class WorkspaceEditService {
   private readonly agentCreatedFiles = new Set<string>();
+  private readonly journal: EditJournalEntry[] = [];
 
   constructor(
     private readonly files: WorkspaceWritePort,
-    private readonly diagnostics?: DiagnosticProvider
+    private readonly diagnostics?: DiagnosticProvider,
+    private readonly reads?: FileSystemPort
   ) {}
 
   async replaceText(input: unknown, signal: AbortSignal): Promise<WorkspaceEditToolResult> {
-    const edit = await this.files.replaceText(parseReplacement(input), signal);
+    const replacement = parseReplacement(input);
+    const before = await this.captureBefore(replacement.path, signal);
+    const edit = await this.files.replaceText(replacement, signal);
+    await this.recordJournal('replace_text', replacement.path, signal, {
+      beforeSha256: edit.beforeSha256,
+      afterSha256: edit.afterSha256,
+      before: before
+    });
     return this.withDiagnostics(edit, signal);
   }
 
@@ -58,6 +77,11 @@ export class WorkspaceEditService {
     // Whole-file rewrites later in the same run are restricted to paths the
     // agent itself created, so a model never silently clobbers user files.
     this.agentCreatedFiles.add(edit.path);
+    await this.recordJournal('create_text_file', edit.path, signal, {
+      beforeSha256: undefined,
+      afterSha256: edit.sha256,
+      afterText: creation.content
+    });
     return this.withDiagnostics(edit, signal);
   }
 
@@ -66,14 +90,26 @@ export class WorkspaceEditService {
     if (!this.agentCreatedFiles.has(rewrite.path)) {
       throw new WorkspaceEditInputError('Whole-file rewrites are only allowed for files created by the agent in this run; use replace_text for other files.');
     }
+    const before = await this.captureBefore(rewrite.path, signal);
     const edit = await this.files.rewriteTextFile(rewrite, signal);
+    await this.recordJournal('rewrite_text_file', edit.path, signal, {
+      beforeSha256: edit.beforeSha256,
+      afterSha256: edit.afterSha256,
+      before: before,
+      afterText: rewrite.content
+    });
     return this.withDiagnostics(edit, signal);
   }
 
   async deleteFile(input: unknown, signal: AbortSignal): Promise<WorkspaceMutationToolResult<WorkspaceFileDeletionResult>> {
     const deletion = parseDeletion(input);
+    const before = await this.captureBefore(deletion.path, signal);
     const edit = await this.files.deleteFile(deletion, signal);
     this.agentCreatedFiles.delete(edit.path);
+    await this.recordJournal('delete_file', edit.path, signal, {
+      beforeSha256: edit.beforeSha256,
+      before: before
+    });
     return this.withDiagnostics(edit, signal);
   }
 
@@ -84,13 +120,176 @@ export class WorkspaceEditService {
       this.agentCreatedFiles.delete(edit.fromPath);
       this.agentCreatedFiles.add(edit.toPath);
     }
+    this.journal.push({
+      id: randomJournalId(),
+      kind: 'rename_file',
+      path: edit.toPath,
+      reversibility: 'reversible',
+      capturedToPath: edit.fromPath
+    });
+    this.trimJournal();
     return this.withDiagnostics(edit, signal);
   }
 
   async createDirectory(input: unknown, signal: AbortSignal): Promise<WorkspaceMutationToolResult<WorkspaceDirectoryCreationResult>> {
     const creation = parseDirectoryCreation(input);
     const edit = await this.files.createDirectory(creation, signal);
+    this.journal.push({
+      id: randomJournalId(),
+      kind: 'create_directory',
+      path: edit.path,
+      reversibility: 'non-reversible',
+      reason: 'Directory removal is not automated; delete files first if you created them here.'
+    });
+    this.trimJournal();
     return this.withDiagnostics(edit, signal);
+  }
+
+  /** Revert the most recent journaled workspace write (LIFO, stale-guarded). */
+  async undoLastEdit(input: unknown, signal: AbortSignal): Promise<{ undone: boolean; kind?: string; path?: string; reason?: string }> {
+    if (!isRecord(input) || Object.keys(input).length > 0) {
+      throw new WorkspaceEditInputError('The undo tool takes no input.');
+    }
+    const entry = this.journal[this.journal.length - 1];
+    if (!entry) return { undone: false, reason: 'No agent workspace edits to undo in this run.' };
+    if (entry.reversibility === 'non-reversible') {
+      return { undone: false, reason: entry.reason ?? `Cannot undo ${entry.kind} automatically.` };
+    }
+    try {
+      signal?.throwIfAborted();
+      switch (entry.kind) {
+        case 'create_text_file':
+          await this.files.deleteFile({ path: entry.path }, signal);
+          this.agentCreatedFiles.delete(entry.path);
+          break;
+        case 'delete_file': {
+          if (entry.capturedBeforeText === undefined) {
+            return { undone: false, reason: 'Deleted content was too large to retain for undo.' };
+          }
+          const restored = await this.files.createTextFile({ path: entry.path, content: entry.capturedBeforeText }, signal);
+          this.agentCreatedFiles.add(restored.path);
+          break;
+        }
+        case 'replace_text':
+        case 'rewrite_text_file': {
+          if (entry.capturedBeforeText === undefined) {
+            return { undone: false, reason: 'Original content was too large to retain for undo.' };
+          }
+          if (entry.afterSha256) {
+            const current = await this.readSha(entry.path, signal);
+            if (current !== entry.afterSha256) {
+              return { undone: false, reason: 'The file changed after the edit; refusing to revert stale state.' };
+            }
+          }
+          await this.files.rewriteTextFile(
+            { path: entry.path, expectedSha256: entry.afterSha256 ?? '0'.repeat(64), content: entry.capturedBeforeText },
+            signal
+          );
+          break;
+        }
+        case 'rename_file': {
+          if (entry.capturedToPath === undefined) {
+            return { undone: false, reason: 'Rename origin was not recorded.' };
+          }
+          await this.files.renameFile({ fromPath: entry.path, toPath: entry.capturedToPath }, signal);
+          if (this.agentCreatedFiles.has(entry.path)) {
+            this.agentCreatedFiles.delete(entry.path);
+            this.agentCreatedFiles.add(entry.capturedToPath);
+          }
+          break;
+        }
+        default:
+          return { undone: false, reason: `Cannot undo ${entry.kind}.` };
+      }
+    } catch (error) {
+      if (signal?.aborted || (error instanceof Error && error.name === 'AbortError')) throw error;
+      const message = error instanceof Error ? error.message : 'Unknown undo failure';
+      return { undone: false, reason: `Undo failed: ${message}` };
+    }
+    this.journal.pop();
+    return { undone: true, kind: entry.kind, path: entry.path };
+  }
+
+  private async captureBefore(relativePath: string, signal?: AbortSignal): Promise<string | undefined> {
+    if (!this.reads) return undefined;
+    try {
+      const content = await this.reads.readFile(relativePath, signal);
+      if (countBytes(content.text) <= MAX_JOURNAL_TEXT_BYTES) return content.text;
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async readSha(relativePath: string, signal?: AbortSignal): Promise<string | undefined> {
+    if (!this.reads) return undefined;
+    try {
+      const content = await this.reads.readFile(relativePath, signal);
+      return content.sha256;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async recordJournal(
+    kind: JournalMutationKind,
+    path: string,
+    signal: AbortSignal,
+    evidence: {
+      beforeSha256?: string;
+      afterSha256?: string;
+      before?: string;
+      afterText?: string;
+    }
+  ): Promise<void> {
+    const entry: EditJournalEntry = {
+      id: randomJournalId(),
+      kind,
+      path,
+      beforeSha256: evidence.beforeSha256,
+      afterSha256: evidence.afterSha256,
+      reversibility: 'non-reversible'
+    };
+    const after = evidence.afterText ?? (await this.readAfterText(path, signal));
+    if (evidence.before !== undefined && after !== undefined) {
+      entry.capturedBeforeText = evidence.before;
+      entry.capturedAfterText = after;
+      entry.summary = summarizeTextChange(evidence.before, after);
+      entry.reversibility = 'reversible';
+    } else if (kind === 'create_text_file') {
+      // Reversible through delete without retaining content.
+      entry.reversibility = 'reversible';
+    } else if (kind === 'delete_file' && evidence.before !== undefined) {
+      entry.capturedBeforeText = evidence.before;
+      entry.reversibility = 'reversible';
+    } else if (kind === 'rename_file') {
+      // Reversible through a reverse rename without retaining content.
+      entry.reversibility = 'reversible';
+    } else {
+      entry.reversibility = 'non-reversible';
+      entry.reason = kind === 'delete_file'
+        ? 'Deleted content was too large to retain for undo.'
+        : 'Original content was too large to retain for undo, or the file was not readable.';
+    }
+    this.journal.push(entry);
+    this.trimJournal();
+  }
+
+  private async readAfterText(relativePath: string, signal?: AbortSignal): Promise<string | undefined> {
+    if (!this.reads) return undefined;
+    try {
+      const content = await this.reads.readFile(relativePath, signal);
+      if (countBytes(content.text) <= MAX_JOURNAL_TEXT_BYTES) return content.text;
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private trimJournal(): void {
+    while (this.journal.length > MAX_JOURNAL_ENTRIES) {
+      this.journal.shift();
+    }
   }
 
   private async withDiagnostics<T>(edit: T, signal: AbortSignal): Promise<WorkspaceMutationToolResult<T>> {
@@ -238,6 +437,26 @@ export function createWorkspaceDirectoryTool(service: WorkspaceEditService): Yis
   };
 }
 
+export function createUndoLastEditTool(service: WorkspaceEditService): YisiTool {
+  return {
+    id: 'undo_last_edit',
+    description:
+      'Revert the most recent workspace write the agent made in this run '
+      + '(create/delete/replace/rewrite/rename). Stale-guarded: refuses when the file '
+      + 'changed afterwards. Directory creation and oversized edits are not automatically '
+      + 'revertible and are reported honestly. Takes no input.',
+    risk: 'workspaceWrite',
+    mutatesWorkspace: true,
+    supportsCancellation: true,
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      additionalProperties: false
+    },
+    execute: (input, context) => service.undoLastEdit(input, context.signal)
+  };
+}
+
 function parseReplacement(value: unknown): WorkspaceTextReplacement {
   if (!isExactRecord(value, ['path', 'expectedSha256', 'oldText', 'newText'])) {
     throw new WorkspaceEditInputError();
@@ -317,6 +536,14 @@ function isExactRecord(value: unknown, keys: string[]): value is Record<string, 
   const actual = Object.keys(value).sort();
   const expected = [...keys].sort();
   return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function randomJournalId(): string {
+  return randomUUID();
 }
 
 function isBoundedNonBlank(value: unknown, max: number): value is string {

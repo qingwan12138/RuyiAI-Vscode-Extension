@@ -29,7 +29,8 @@ import {
   createWorkspaceRewriteTool,
   createWorkspaceDeleteTool,
   createWorkspaceRenameTool,
-  createWorkspaceDirectoryTool
+  createWorkspaceDirectoryTool,
+  createUndoLastEditTool
 } from './application/edit/workspaceEditService';
 import {
   CommandExecutionService,
@@ -165,7 +166,7 @@ async function createAgentWorkspace(): Promise<AgentWorkspaceServices> {
       getDiagnostics: () => vscode.languages.getDiagnostics(),
       getWorkspaceFolder: uri => vscode.workspace.getWorkspaceFolder(uri as vscode.Uri)
     }, [workspace.uri], 50);
-    const edits = new WorkspaceEditService(fileSystem, diagnostics);
+    const edits = new WorkspaceEditService(fileSystem, diagnostics, fileSystem);
     const commands = new CommandExecutionService(new NodeProcessRunner(), workspace.fsPath);
     const profileService = new ProjectProfileService(fileSystem);
     const tools = [
@@ -176,6 +177,7 @@ async function createAgentWorkspace(): Promise<AgentWorkspaceServices> {
       createWorkspaceDeleteTool(edits),
       createWorkspaceRenameTool(edits),
       createWorkspaceDirectoryTool(edits),
+      createUndoLastEditTool(edits),
       createRunCommandTool(commands),
       createInspectProjectTool(profileService)
     ];
