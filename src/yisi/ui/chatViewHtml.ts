@@ -749,18 +749,8 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       background: var(--vscode-input-background, var(--vscode-sideBar-background));
     }
 
-    .ctx-ring-text {
-      position: relative;
-      z-index: 1;
-      font-size: 8px;
-      font-weight: 700;
-      line-height: 1;
-      pointer-events: none;
-    }
-
     .ctx-ring.unknown {
       background: var(--vscode-toolbar-hoverBackground);
-      color: var(--yisi-muted);
     }
 
     .control-button {
@@ -919,9 +909,7 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
         <div class="context-chips" id="contextChips" aria-label="Attached context"></div>
         <div class="composer-footer">
           <div class="composer-left">
-            <span class="ctx-ring" id="ctxRing" title="Context usage">
-              <span class="ctx-ring-text" id="ctxRingText">–</span>
-            </span>
+            <span class="ctx-ring" id="ctxRing" title="上下文已用：—"></span>
             <button class="control-button" id="addContext" type="button" title="Add context">
               <span style="font-size:17px;line-height:1;">＋</span>
             </button>
@@ -1254,22 +1242,27 @@ ${permissionClientScript()}
 
     function updateContextRing(usage) {
       const ring = document.getElementById('ctxRing');
-      const text = document.getElementById('ctxRingText');
-      if (!ring || !text) return;
+      if (!ring) return;
       // The ring is always visible; without a known model/context window it
-      // degrades to a grey "–" instead of hiding (which read as "not working").
-      if (!usage || !usage.supported) {
+      // degrades to a grey ring instead of hiding. Only the fill represents the
+      // percentage — no numbers inside, and the hover title just says the
+      // percent used (no raw token counts).
+      if (!usage) {
         ring.classList.add('unknown');
         ring.style.background = 'conic-gradient(var(--yisi-accent) 0%, var(--yisi-border) 0)';
-        text.textContent = '–';
-        ring.title = usage ? 'Context window unknown for the selected model' : 'Select a model to see context usage';
+        ring.title = '选择模型后显示上下文用量';
+        return;
+      }
+      if (!usage.supported) {
+        ring.classList.add('unknown');
+        ring.style.background = 'conic-gradient(var(--yisi-accent) 0%, var(--yisi-border) 0)';
+        ring.title = '上下文窗口未知';
         return;
       }
       ring.classList.remove('unknown');
       const percent = Math.max(0, Math.min(100, usage.percent));
       ring.style.background = 'conic-gradient(var(--yisi-accent) ' + percent + '%, var(--yisi-border) 0)';
-      text.textContent = percent + '%';
-      ring.title = 'Context used: ' + usage.usedTokens + ' / ' + usage.maxTokens + ' tokens (' + percent + '%)';
+      ring.title = '上下文已用 ' + percent + '%';
     }
 
     function renderContexts(contexts) {
