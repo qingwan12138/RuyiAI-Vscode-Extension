@@ -36,10 +36,11 @@ const TASK_INSTRUCTION: Readonly<Record<EditorSelectionTaskKind, string>> = {
     + '不要逐行翻译代码，注释应说明“为什么”而不是复述“是什么”。'
     + '输出可直接替换选区的完整代码（保留原有代码，只在其上添加注释）。',
   unitTests:
-    '请为选中代码生成单元测试。先尝试识别项目既有测试框架与命名约定：'
-    + 'C/C++ 优先 CMake/ctest、GoogleTest、Catch2；Java 优先 JUnit（按项目实际构建工具 Maven/Gradle 判断）。'
-    + '若你启用了工作区工具且当前权限允许，可读取项目构建文件后在正确位置创建测试文件并运行验证；'
-    + '否则在回复中给出完整、可直接编译运行的测试源码，并说明应放置的文件路径与如何接入构建。'
+    '请为选中代码生成单元测试。若你启用了工作区工具，可先调用 inspect_project 识别项目构建/测试框架，'
+    + '再读取项目构建文件确认约定：C/C++ 优先 CMake/ctest、GoogleTest、Catch2；'
+    + 'Java 优先 JUnit（按项目实际构建工具 Maven/Gradle 判断）；Node/Python/Rust/Go 同理。'
+    + '当权限允许时可在正确位置创建测试文件并运行验证；否则在回复中给出完整、可直接编译运行的测试源码，'
+    + '并说明应放置的文件路径与如何接入构建。'
     + '测试应覆盖正常路径与关键边界/错误路径，避免只做“无意义冒烟”。'
 };
 
@@ -91,10 +92,15 @@ const KNOWN_FENCE_TOKENS: ReadonlySet<string> = new Set([
  * Compose the full user message for an editor selection task.
  * A too-long selection is truncated to {@link MAX_SELECTION_TASK_CHARS} with an
  * explicit note so the model is never silently missing the tail.
+ *
+ * `projectProfileSummary` (optional) carries detected build/test framework
+ * context; it is appended for unit-test tasks so the model targets the real
+ * framework. Other task kinds ignore it.
  */
 export function buildSelectionTaskMessage(
   kind: EditorSelectionTaskKind,
-  context: EditorSelectionTaskContext
+  context: EditorSelectionTaskContext,
+  projectProfileSummary?: string
 ): string {
   const code = requireSelectionText(context.code);
   const fileName = requireNonBlank(context.fileName, 'Selection file name');
@@ -110,17 +116,20 @@ export function buildSelectionTaskMessage(
   const truncatedNote = truncated
     ? `\n\n> 注：选区超过 ${MAX_SELECTION_TASK_CHARS} 字符，已截断为前 ${MAX_SELECTION_TASK_CHARS} 字符。如需要请分多次选取。`
     : '';
-
-  return [
+  const blocks = [
     `[选区任务] ${TASK_LABEL[kind]}`,
     `位置：${fileName} · ${languageLabel} · 第 ${lineStart}–${lineEnd} 行`,
     '',
     '```' + fence,
     body,
     '```' + truncatedNote,
-    '',
-    TASK_INSTRUCTION[kind]
-  ].join('\n');
+    ''
+  ];
+  if (kind === 'unitTests' && projectProfileSummary && projectProfileSummary.trim()) {
+    blocks.push('[项目探测结果]', projectProfileSummary.trim(), '');
+  }
+  blocks.push(TASK_INSTRUCTION[kind]);
+  return blocks.join('\n');
 }
 
 function requireSelectionText(code: string): string {

@@ -31,9 +31,11 @@ import {
   CommandExecutionService,
   createRunCommandTool
 } from './application/process/commandExecutionService';
+import { ProjectProfileService, createInspectProjectTool } from './application/context/projectProfileService';
 import { NodeProcessRunner } from './infrastructure/process/nodeProcessRunner';
 import { VsCodeToolConfirmation } from './vscode/agent/vsCodeToolConfirmation';
 import { VsCodeDiagnosticProvider } from './vscode/diagnostics/vsCodeDiagnosticProvider';
+import type { ProjectProfileSource } from './ui/chatViewProvider';
 
 const LEGACY_STORAGE_KEY = 'yisiAI.sessions.v1';
 
@@ -88,7 +90,7 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
   );
   await providerSetup.applyWorkspaceDefaultToActiveSession();
   const providerCatalog = new ProviderCatalog(providerConfigurations, secrets, process.env, providerFactory);
-  const agentRunner = await createAgentRunner();
+  const agentWorkspace = await createAgentWorkspace();
   const modelControl = new ModelControlService(providerConfigurations, sessions, process.env);
   const attachmentService = new AttachmentService(createDefaultAttachmentRegistry(), {
     getVisionCapability: async () => {
@@ -113,7 +115,7 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
   const chat = new ChatService(
     sessions,
     providerCatalog,
-    agentRunner,
+    agentWorkspace.runner,
     () => {
       const section = vscode.workspace.getConfiguration('yisiAI');
       return {
@@ -129,7 +131,8 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
     providerSetup,
     chat,
     new VsCodeWorkspaceContextPicker(attachmentService),
-    modelControl
+    modelControl,
+    agentWorkspace.profile
   );
 
   context.subscriptions.push(
@@ -144,9 +147,14 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
   );
 }
 
-async function createAgentRunner(): Promise<AgentChatRunner | undefined> {
+interface AgentWorkspaceServices {
+  runner?: AgentChatRunner;
+  profile?: ProjectProfileSource;
+}
+
+async function createAgentWorkspace(): Promise<AgentWorkspaceServices> {
   const workspace = selectLocalAgentWorkspace(vscode.workspace.workspaceFolders);
-  if (!workspace) return undefined;
+  if (!workspace) return {};
   try {
     const fileSystem = await NodeWorkspaceFileSystem.create(workspace.fsPath);
     const diagnostics = new VsCodeDiagnosticProvider({
@@ -155,21 +163,30 @@ async function createAgentRunner(): Promise<AgentChatRunner | undefined> {
     }, [workspace.uri], 50);
     const edits = new WorkspaceEditService(fileSystem, diagnostics);
     const commands = new CommandExecutionService(new NodeProcessRunner(), workspace.fsPath);
+    const profileService = new ProjectProfileService(fileSystem);
     const tools = [
       ...createWorkspaceContextTools(new WorkspaceContextService(fileSystem)),
       createWorkspaceEditTool(edits),
       createWorkspaceFileTool(edits),
-      createRunCommandTool(commands)
+      createRunCommandTool(commands),
+      createInspectProjectTool(profileService)
     ];
-    return new AgentChatRunner(
+    const runner = new AgentChatRunner(
       new ToolRegistry(tools),
       new PermissionEngine(),
       workspace.uri,
       new VsCodeToolConfirmation()
     );
+    const profile: ProjectProfileSource = {
+      inspect: async () => {
+        const inspection = await profileService.inspect();
+        return inspection.summary;
+      }
+    };
+    return { runner, profile };
   } catch {
     console.warn('[Yisi AI] Local Agent workspace initialization is unavailable.');
-    return undefined;
+    return {};
   }
 }
 

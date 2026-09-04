@@ -61,6 +61,21 @@ test('language display labels and fence tokens', () => {
   assert.equal(selectionFenceToken('plaintext'), '');
 });
 
+test('unit test message embeds the project detection block when provided', () => {
+  const summary = 'Languages: Java\nBuild: maven (pom.xml)\nTest frameworks: junit (pom.xml, strong)\nSuggested commands:\n- mvn -q test';
+  const message = buildSelectionTaskMessage('unitTests', sampleContext({ languageId: 'java', fileName: 'Calc.java' }), summary);
+  assert.match(message, /\[项目探测结果\]/);
+  assert.ok(message.indexOf(summary) >= 0, 'summary must appear verbatim');
+  assert.ok(message.indexOf('[项目探测结果]') < message.indexOf('请为选中代码生成单元测试'), 'project block precedes instructions');
+});
+
+test('explain/comment ignore the project detection block', () => {
+  for (const kind of ['explain', 'comment']) {
+    const message = buildSelectionTaskMessage(kind, sampleContext(), 'Languages: C\nBuild: cmake (CMakeLists.txt)');
+    assert.ok(!message.includes('[项目探测结果]'), `${kind} must ignore project summary`);
+  }
+});
+
 test('invalid contexts throw instead of producing a malformed prompt', () => {
   assert.throws(() => buildSelectionTaskMessage('explain', sampleContext({ code: '  ' })));
   assert.throws(() => buildSelectionTaskMessage('explain', sampleContext({ fileName: '' })));

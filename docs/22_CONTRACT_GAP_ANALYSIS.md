@@ -79,5 +79,6 @@
 | 2026-09-03 | 建档：基于 RISC-V合同.pdf（OCR 提取文本见工作区 `RISC-V合同_OCR提取文本.txt`）与 Yisi AI v0.1.7 源码逐条对账 |
 | 2026-09-03 | G1（编辑器选区命令）落地：`yisiAI.selection.explain/comment/unitTests` 三个命令 + editor/context 菜单；链路 = vscode 选区适配 → 纯提示词组装（`application/chat/editorSelectionTask.ts`，单测 6 个）→ 复用 Chat/Agent run（`chatViewProvider.runEditorSelectionTask`）。未改动 Webview 渲染协议，选区任务作为普通会话轮次持久化。 |
 | 2026-09-03 | G2 阶段一（结构化命令执行）落地：`application/process/commandExecutionService.ts` + `run_command` 工具（risk `processExec`）；agent loop 放行 processExec 并保持权限门（plan 拒绝 / manual·acceptEdits·auto 需确认 / fullAccess 放行；特权与系统/包管理器可执行文件工具层硬拒；cwd 限制在工作区内）。对应更新 `readOnlyAgentLoop.ts` 边界与测试。自动验证闭环（ValidationPlanner 按项目自动跑 build/test）仍未实现，属于 G2 后续阶段。 |
+| 2026-09-03 | G4（语言/构建/测试框架探测）落地：纯 TS 探测器 `application/context/projectProfileDetector.ts`（语言/构建系统/测试框架带证据文件与置信度 + 建议命令）+ `ProjectProfileService`（FileSystemPort 扫描根与常见 src/tests 目录并解码清单文件）+ 只读 Agent 工具 `inspect_project`；选区 unitTests 提示词在可行时附带探测摘要（`buildSelectionTaskMessage` 可选第三参）。新增测试 14 个（探测器 8 / 服务 4 / 提示词 2）。单测 258/258 通过。仍待：按框架做深度内容扫描（搜索标记 token）、嵌套多模块识别。 |
 
 > 备注：合同 PDF 为扫描件无文本层，插件当前 PDF 附件提取器会如实给出"无文本/疑似扫描"警告（OCR 能力在插件路线图之外）；本文档分析用的是 pdftoppm 渲染 + RapidOCR 的离线提取结果。

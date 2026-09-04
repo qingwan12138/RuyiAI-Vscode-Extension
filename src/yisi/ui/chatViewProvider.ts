@@ -16,6 +16,13 @@ import {
 } from '../application/chat/editorSelectionTask';
 import { collectActiveEditorSelection } from '../vscode/selection/editorSelectionTaskAdapter';
 
+export type { EditorSelectionTaskKind } from '../application/chat/editorSelectionTask';
+
+/** Optional source of detected project build/test context for selection tasks. */
+export interface ProjectProfileSource {
+  inspect(): Promise<string>;
+}
+
 export class YisiChatViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private disposables: vscode.Disposable[] = [];
@@ -28,7 +35,8 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
     private readonly providerSetup: ProviderSetupWizard,
     chat: ChatService,
     private readonly contextPicker: AttachmentContextPicker,
-    private readonly modelControl: ModelControlService
+    private readonly modelControl: ModelControlService,
+    private readonly projectProfile?: ProjectProfileSource
   ) {
     this.runs = new ChatRunCoordinator(chat, event => {
       void this.view?.webview.postMessage(event);
@@ -119,7 +127,17 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
     // Best-effort reveal so the user sees the turn stream when the view can
     // resolve in time; a late resolve still converges through publishState.
     void vscode.commands.executeCommand('yisiAI.chat.focus');
-    await this.runs.start(buildSelectionTaskMessage(kind, context));
+    // Unit-test tasks benefit from detected project build/test context. The
+    // profile source is best-effort: any failure degrades to no project block.
+    let projectSummary: string | undefined;
+    if (kind === 'unitTests' && this.projectProfile) {
+      try {
+        projectSummary = await this.projectProfile.inspect();
+      } catch {
+        projectSummary = undefined;
+      }
+    }
+    await this.runs.start(buildSelectionTaskMessage(kind, context, projectSummary));
     await this.publishState();
   }
 
