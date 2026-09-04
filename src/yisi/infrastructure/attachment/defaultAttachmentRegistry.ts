@@ -31,13 +31,21 @@ function cached<T>(id: string): () => T {
 // extension host ("The PDF parser could not initialize correctly..."). We pin
 // the 3.x legacy UMD build instead: it is CommonJS (`require`) loadable, works
 // in the extension host, and its text-layer API is identical for our use.
-// pdf.js also needs an explicit worker path in the host — without it it throws
-// "No 'GlobalWorkerOptions.workerSrc' specified." — so we point it at the
-// legacy CJS worker before first use.
+//
+// Two host quirks are patched before first use:
+//  * pdf.js needs an explicit worker path, else it throws
+//    "No 'GlobalWorkerOptions.workerSrc' specified." → we point workerSrc at
+//    the legacy CJS worker.
+//  * its fake-worker bootstrap touches the browser global `document` (and
+//    sometimes `navigator`), which do not exist in the extension host, causing
+//    "Setting up fake worker failed: \"document is not defined\"." → we install
+//    tiny placeholder shims so the host proceeds; real browser globals are left
+//    untouched.
 function cachedPdfJs(): () => Promise<PdfJsModule> {
   let modulePromise: Promise<PdfJsModule> | undefined;
   return () => {
     modulePromise ??= Promise.resolve().then(() => {
+      shimBrowserGlobalsForPdfJs();
       const pdfjs = require('pdfjs-dist/legacy/build/pdf.js') as PdfJsModule &
         { GlobalWorkerOptions?: { workerSrc?: string } };
       try {
@@ -51,6 +59,21 @@ function cachedPdfJs(): () => Promise<PdfJsModule> {
     });
     return modulePromise;
   };
+}
+
+/** Minimal placeholder shims so pdf.js worker bootstrap can run in the host. */
+function shimBrowserGlobalsForPdfJs(): void {
+  const scope = globalThis as Record<string, unknown>;
+  if (scope.document === undefined) {
+    scope.document = {
+      createElement: () => ({ getContext: () => null, style: {}, setAttribute: () => undefined }),
+      createElementNS: () => ({ setAttribute: () => undefined }),
+      documentElement: { style: {} }
+    };
+  }
+  if (scope.navigator === undefined) {
+    scope.navigator = { userAgent: 'node', platform: 'node' };
+  }
 }
 
 export function createDefaultAttachmentRegistry(): AttachmentExtractorRegistry {
