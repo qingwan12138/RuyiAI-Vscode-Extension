@@ -58,9 +58,18 @@
       {
         "command": "yisiAI.focus",
         "title": "Yisi AI: Open Chat",
-        "icon": "$(sparkle)"
+        "icon": "$(yisiAI)"
       }
     ],
+    "icons": {
+      "yisiAI": {
+        "description": "Yisi AI",
+        "default": {
+          "light": "media/yisi-tech.svg",
+          "dark": "media/yisi-tech.svg"
+        }
+      }
+    },
     "menus": {
       "editor/title": [
         {
