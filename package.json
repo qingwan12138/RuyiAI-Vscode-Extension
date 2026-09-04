@@ -54,9 +54,20 @@
       {
         "command": "yisiAI.showEditJournal",
         "title": "Yisi AI: Show Edit Journal / Undo"
+      },
+      {
+        "command": "yisiAI.focus",
+        "title": "Yisi AI: Open Chat"
       }
     ],
     "menus": {
+      "editor/title": [
+        {
+          "command": "yisiAI.focus",
+          "when": "resourceScheme == 'file'",
+          "group": "navigation@1"
+        }
+      ],
       "editor/context": [
         {
           "command": "yisiAI.selection.explain",

@@ -150,6 +150,11 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
     agentWorkspace.profile,
     () => readContextUsage(sessions, providerCatalog, providerConfigurations)
   );
+  const yisiStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  yisiStatus.text = '$(symbol-method)';
+  yisiStatus.tooltip = 'Yisi AI';
+  yisiStatus.command = 'yisiAI.focus';
+  yisiStatus.show();
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('yisiAI.chat', chatView),
@@ -162,8 +167,18 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
     vscode.commands.registerCommand('yisiAI.selection.unitTests', () => chatView.runEditorSelectionTask('unitTests')),
     vscode.commands.registerCommand('yisiAI.generateReadme', () => chatView.runProjectDocTask('readme')),
     vscode.commands.registerCommand('yisiAI.generateApiDocs', () => chatView.runProjectDocTask('apiDocs')),
-    vscode.commands.registerCommand('yisiAI.showEditJournal', () => showEditJournal(agentWorkspace.edits))
+    vscode.commands.registerCommand('yisiAI.showEditJournal', () => showEditJournal(agentWorkspace.edits)),
+    vscode.commands.registerCommand('yisiAI.focus', () => revealYisiChat()),
+    yisiStatus
   );
+}
+
+/** Reveal the Yisi AI chat (status bar / editor-title entry points). */
+function revealYisiChat(): void {
+  const focusCommand = vscode.commands.executeCommand('yisiAI.chat.focus');
+  void focusCommand.then(() => undefined, () => {
+    void vscode.commands.executeCommand('workbench.view.extension.yisiAI');
+  });
 }
 
 interface AgentWorkspaceServices {
