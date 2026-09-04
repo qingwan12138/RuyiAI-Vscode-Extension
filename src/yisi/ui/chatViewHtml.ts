@@ -305,7 +305,44 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       font-size: 12px;
       white-space: pre-wrap;
       word-break: break-word;
+      overflow-wrap: anywhere;
+      min-width: 0;
+      max-width: 100%;
     }
+
+    .message > :first-child { margin-top: 0; }
+    .message > :last-child { margin-bottom: 0; }
+
+    .message p { margin: 0 0 6px; }
+    .message h1, .message h2, .message h3, .message h4, .message h5, .message h6 {
+      margin: 8px 0 4px;
+      font-size: 1.12em;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+    .message code.md-icode {
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 0.92em;
+      background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.14));
+      padding: 1px 4px;
+      border-radius: 4px;
+    }
+    .message pre.md-code {
+      white-space: pre;
+      overflow-x: auto;
+      border: 1px solid var(--yisi-border);
+      border-radius: 6px;
+      padding: 8px;
+      background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.10));
+    }
+    .message pre.md-code code { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.92em; white-space: pre; }
+    .message .md-table-wrap { overflow-x: auto; margin: 0 0 6px; }
+    .message table { border-collapse: collapse; min-width: 100%; }
+    .message th, .message td { border: 1px solid var(--yisi-border); padding: 4px 6px; text-align: left; vertical-align: top; }
+    .message th { background: var(--yisi-surface-hover); font-weight: 600; }
+    .message blockquote.md-quote { margin: 4px 0; padding: 2px 8px; border-left: 2px solid var(--yisi-border); color: var(--yisi-muted); }
+    .message hr.md-hr { border: 0; border-top: 1px solid var(--yisi-border); margin: 8px 0; }
+    .message a { color: var(--vscode-textLink-foreground); text-decoration: none; word-break: break-all; }
 
     .message.user {
       margin-left: 22px;
@@ -1078,13 +1115,114 @@ ${permissionClientScript()}
     function appendMessage(text, role, streaming) {
       const node = document.createElement('div');
       node.className = 'message ' + role + (streaming ? ' streaming' : '');
-      node.textContent = text;
+      renderMessageBody(node, text, role, streaming);
       conversation.appendChild(node);
       welcome.style.display = 'none';
       conversation.classList.add('visible');
       const content = document.getElementById('content');
       content.scrollTop = content.scrollHeight;
       return node;
+    }
+
+    // Safe, minimal Markdown rendering for assistant messages: HTML is escaped
+    // first, then a small transform adds headings/bold/inline-code/lists/
+    // tables/code blocks. No external dependency, no raw HTML injection.
+    function renderMessageBody(node, text, role, streaming) {
+      if (role === 'assistant' && !streaming) {
+        node.innerHTML = safeMarkdown(text);
+      } else {
+        node.textContent = text;
+      }
+    }
+
+    function mdEscape(value) {
+      return String(value)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function mdInline(value) {
+      return value
+        .replace(/\`([^\`]+)\`/g, '<code class="md-icode">$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+    }
+
+    function mdSplitRow(cells) {
+      return cells.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim());
+    }
+
+    function safeMarkdown(source) {
+      const lines = mdEscape(source || '').split('\n');
+      const out = [];
+      let i = 0;
+      const isTableSeparator = line => /^[\s:|–-]+$/.test(line) && line.includes('-');
+      const isListBullet = line => /^\s*[-*+]\s+/.test(line);
+      const isOrderedList = line => /^\s*\d+\.\s+/.test(line);
+      const isHeading = line => /^#{1,6}\s/.test(line);
+      while (i < lines.length) {
+        const line = lines[i];
+        if (/^\`\`\`/.test(line)) {
+          const buffer = [];
+          let j = i + 1;
+          while (j < lines.length && !/^\`\`\`/.test(lines[j])) { buffer.push(lines[j]); j += 1; }
+          out.push('<pre class="md-code"><code>' + buffer.join('\n') + '</code></pre>');
+          i = j + 1;
+          continue;
+        }
+        if (line.includes('|') && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+          const header = mdSplitRow(lines[i]);
+          const body = [];
+          let j = i + 2;
+          while (j < lines.length && lines[j].includes('|') && !isTableSeparator(lines[j])) {
+            body.push(mdSplitRow(lines[j]));
+            j += 1;
+          }
+          const headHtml = header.map(cell => '<th>' + mdInline(cell) + '</th>').join('');
+          const rowsHtml = body.map(row => '<tr>' + row.map(cell => '<td>' + mdInline(cell) + '</td>').join('') + '</tr>').join('');
+          out.push('<div class="md-table-wrap"><table><thead><tr>' + headHtml + '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>');
+          i = j;
+          continue;
+        }
+        if (isHeading(line)) {
+          const level = line.match(/^#+/)[0].length;
+          out.push('<h' + level + '>' + mdInline(line.replace(/^#+\s*/, '')) + '</h' + level + '>');
+          i += 1;
+          continue;
+        }
+        if (/^>\s?/.test(line)) {
+          const buffer = [];
+          while (i < lines.length && /^>\s?/.test(lines[i])) { buffer.push(lines[i].replace(/^>\s?/, '')); i += 1; }
+          out.push('<blockquote class="md-quote">' + mdInline(buffer.join(' ')) + '</blockquote>');
+          continue;
+        }
+        if (isListBullet(line)) {
+          const buffer = [];
+          while (i < lines.length && isListBullet(lines[i])) { buffer.push(mdInline(lines[i].replace(/^\s*[-*+]\s+/, ''))); i += 1; }
+          out.push('<ul>' + buffer.map(item => '<li>' + item + '</li>').join('') + '</ul>');
+          continue;
+        }
+        if (isOrderedList(line)) {
+          const buffer = [];
+          while (i < lines.length && isOrderedList(lines[i])) { buffer.push(mdInline(lines[i].replace(/^\s*\d+\.\s+/, ''))); i += 1; }
+          out.push('<ol>' + buffer.map(item => '<li>' + item + '</li>').join('') + '</ol>');
+          continue;
+        }
+        if (/^\s*---+\s*$/.test(line)) { out.push('<hr class="md-hr">'); i += 1; continue; }
+        if (line.trim() === '') { i += 1; continue; }
+        const paragraph = [];
+        while (
+          i < lines.length && lines[i].trim() !== ''
+          && !/^\`\`\`/.test(lines[i]) && !isHeading(lines[i])
+          && !/^>\s?/.test(lines[i]) && !isListBullet(lines[i])
+          && !isOrderedList(lines[i]) && !/^\s*---+\s*$/.test(lines[i])
+        ) {
+          paragraph.push(lines[i]);
+          i += 1;
+        }
+        out.push('<p>' + paragraph.map(item => mdInline(item)).join('<br>') + '</p>');
+      }
+      return out.join('');
     }
 
     function renderContexts(contexts) {
@@ -1265,7 +1403,12 @@ ${permissionClientScript()}
 
       if (message.type === 'assistantStreamCompleted') {
         isRunning = false;
-        if (transientAssistant) transientAssistant.classList.remove('streaming');
+        if (transientAssistant) {
+          transientAssistant.classList.remove('streaming');
+          // Re-render the finished text through the safe Markdown renderer so
+          // the reply formats (headings/bold/tables/code) instead of staying raw.
+          transientAssistant.innerHTML = safeMarkdown(streamedText);
+        }
         status.textContent = '';
         updateSendState();
       }

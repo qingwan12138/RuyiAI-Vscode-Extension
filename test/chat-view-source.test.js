@@ -6,8 +6,13 @@ const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'yisi', 'ui', 'chatViewHtml.ts'), 'utf8');
 const provider = fs.readFileSync(path.join(__dirname, '..', 'src', 'yisi', 'ui', 'chatViewProvider.ts'), 'utf8');
 
-test('renders streamed provider content through textContent and explicit run-state events', () => {
-  assert.equal(source.includes('.innerHTML'), false);
+test('streams provider content via textContent and renders safe Markdown after completion', () => {
+  // Assistant output is rendered through an escape-then-transform Markdown path
+  // (headings/bold/tables/code blocks), never a raw HTML sink.
+  assert.match(source, /function safeMarkdown\(/);
+  assert.match(source, /function renderMessageBody\(/);
+  assert.match(source, /function mdEscape\(/);
+  assert.equal(source.includes('document.body.innerHTML'), false);
   assert.match(source, /assistantStreamStarted/);
   assert.match(source, /assistantStreamDelta/);
   assert.match(source, /assistantStreamCompleted/);
