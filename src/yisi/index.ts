@@ -151,7 +151,7 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
     () => readContextUsage(sessions, providerCatalog, providerConfigurations)
   );
   const yisiStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  yisiStatus.text = '✦ Yisi';
+  yisiStatus.text = '$(sparkle)';
   yisiStatus.tooltip = 'Open Yisi AI';
   yisiStatus.command = 'yisiAI.focus';
   yisiStatus.show();
@@ -169,6 +169,7 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
     vscode.commands.registerCommand('yisiAI.generateApiDocs', () => chatView.runProjectDocTask('apiDocs')),
     vscode.commands.registerCommand('yisiAI.showEditJournal', () => showEditJournal(agentWorkspace.edits)),
     vscode.commands.registerCommand('yisiAI.focus', () => revealYisiChat()),
+    vscode.commands.registerCommand('yisiAI.openChat', () => revealYisiChat()),
     yisiStatus
   );
 }

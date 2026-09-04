@@ -57,10 +57,21 @@
       },
       {
         "command": "yisiAI.focus",
+        "title": "",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "yisiAI.openChat",
         "title": "Yisi AI: Open Chat"
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "yisiAI.focus",
+          "when": "false"
+        }
+      ],
       "editor/title": [
         {
           "command": "yisiAI.focus",
