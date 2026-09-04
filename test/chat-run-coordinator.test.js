@@ -15,7 +15,7 @@ test('forwards lifecycle events and streamed deltas in order', async () => {
   };
   const coordinator = new ChatRunCoordinator(chat, event => events.push(event));
 
-  await coordinator.start('hello');
+  const outcome = await coordinator.start('hello');
 
   assert.deepEqual(events, [
     { type: 'assistantStreamStarted' },
@@ -23,6 +23,7 @@ test('forwards lifecycle events and streamed deltas in order', async () => {
     { type: 'assistantStreamDelta', text: 'lo' },
     { type: 'assistantStreamCompleted' }
   ]);
+  assert.deepEqual(outcome, { status: 'completed' });
   assert.equal(coordinator.isRunning(), false);
 });
 
@@ -39,28 +40,49 @@ test('stop aborts the active provider run and emits runStopped', async () => {
   const running = coordinator.start('hello');
 
   assert.equal(coordinator.stop(), true);
-  await running;
+  const outcome = await running;
 
   assert.deepEqual(events, [
     { type: 'assistantStreamStarted' },
     { type: 'runStopped' }
   ]);
+  assert.deepEqual(outcome, { status: 'stopped' });
   assert.equal(coordinator.stop(), false);
 });
 
-test('normalizes failures without exposing arbitrary objects', async () => {
+test('returns a normalized error outcome instead of emitting sessionError (caller surfaces it after state publish)', async () => {
   const events = [];
   const coordinator = new ChatRunCoordinator(
     { async send() { throw new Error('provider unavailable'); } },
     event => events.push(event)
   );
 
-  await coordinator.start('hello');
+  const outcome = await coordinator.start('hello');
 
+  // Live events stop at the run start; the error is delivered through the
+  // returned outcome so the caller can publish state BEFORE posting it (the
+  // webview state re-render would otherwise wipe the message instantly).
   assert.deepEqual(events, [
-    { type: 'assistantStreamStarted' },
-    { type: 'sessionError', message: 'provider unavailable' }
+    { type: 'assistantStreamStarted' }
   ]);
+  assert.deepEqual(outcome, { status: 'error', message: 'provider unavailable' });
+});
+
+test('guards overlapping runs through the outcome instead of an event', async () => {
+  const events = [];
+  let resolveSend;
+  const chat = {
+    async send() { await new Promise(resolve => { resolveSend = resolve; }); }
+  };
+  const coordinator = new ChatRunCoordinator(chat, event => events.push(event));
+  const running = coordinator.start('first');
+
+  const guarded = await coordinator.start('second');
+  assert.deepEqual(guarded, { status: 'error', message: 'A chat run is already in progress.' });
+  assert.deepEqual(events, [{ type: 'assistantStreamStarted' }]);
+
+  resolveSend();
+  await running;
 });
 
 test('forwards only host-resolved explicit contexts to ChatService', async () => {
@@ -73,7 +95,8 @@ test('forwards only host-resolved explicit contexts to ChatService', async () =>
     async send(_text, _onDelta, _signal, contexts) { received = contexts; }
   }, () => {});
 
-  await coordinator.start('explain', [context]);
+  const outcome = await coordinator.start('explain', [context]);
 
   assert.deepEqual(received, [context]);
+  assert.deepEqual(outcome, { status: 'completed' });
 });

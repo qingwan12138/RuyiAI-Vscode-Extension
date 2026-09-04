@@ -390,6 +390,13 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       background: var(--yisi-surface);
     }
 
+    .message.error {
+      margin-right: 12px;
+      border: 1px solid var(--vscode-inputValidation-errorBorder, rgba(231, 130, 108, 0.5));
+      color: var(--vscode-errorForeground, #f48771);
+      background: var(--vscode-inputValidation-errorBackground, transparent);
+    }
+
     .message.assistant {
       margin-right: 12px;
       border: 1px solid var(--yisi-border);
@@ -1356,6 +1363,20 @@ ${permissionClientScript()}
       return details.join(' — ');
     }
 
+    // Run failures must stay visible: the host re-publishes session state
+    // before posting the error (so the state re-render cannot wipe it), and we
+    // render it as a conversation bubble instead of only the thin status line.
+    function appendErrorBubble(text) {
+      const last = conversation.lastElementChild;
+      if (last && last.classList.contains('error') && last.textContent === text) return;
+      const node = document.createElement('div');
+      node.className = 'message error';
+      node.textContent = text;
+      conversation.appendChild(node);
+      const content = document.getElementById('content');
+      content.scrollTop = content.scrollHeight;
+    }
+
     function submit() {
       if (isRunning) {
         vscode.postMessage({ type: 'stop' });
@@ -1485,8 +1506,23 @@ ${permissionClientScript()}
 
       if (message.type === 'sessionError') {
         isRunning = false;
-        if (transientAssistant) transientAssistant.classList.remove('streaming');
-        status.textContent = message.message || 'Session action failed.';
+        const text = (typeof message.message === 'string' && message.message)
+          ? message.message
+          : 'Session action failed.';
+        // Finalize any partial stream, drop a bare "Thinking…" bubble, then
+        // keep the failure visible as an error bubble (not just the status row).
+        if (transientAssistant) {
+          if (streamedText) {
+            transientAssistant.classList.remove('streaming');
+            transientAssistant.innerHTML = safeMarkdown(streamedText);
+          } else {
+            transientAssistant.remove();
+          }
+          transientAssistant = undefined;
+          streamedText = '';
+        }
+        appendErrorBubble(text);
+        status.textContent = text;
         updateSendState();
       }
 
