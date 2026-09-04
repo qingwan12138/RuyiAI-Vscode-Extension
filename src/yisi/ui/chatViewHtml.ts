@@ -56,6 +56,13 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       --yisi-accent-soft: color-mix(in srgb, var(--vscode-button-background) 14%, transparent);
     }
 
+    :root {
+      color-scheme: light dark;
+      /* Content never shrinks below this; a narrower sidebar shows a horizontal
+         scrollbar instead of truncating the layout. Tweak to your needs. */
+      --yisi-min-width: 320px;
+    }
+
     * {
       box-sizing: border-box;
     }
@@ -66,7 +73,10 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       height: 100%;
       margin: 0;
       padding: 0;
-      overflow: hidden;
+      /* VS Code cannot lock the sidebar width, so we enforce a content floor and
+         let the webview scroll horizontally below it instead of clipping. */
+      overflow-x: auto;
+      overflow-y: hidden;
       font-family: var(--vscode-font-family);
       font-size: var(--vscode-font-size);
       color: var(--vscode-foreground);
@@ -85,7 +95,7 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     .app {
       height: 100vh;
       width: 100%;
-      min-width: 0;
+      min-width: var(--yisi-min-width);
       display: grid;
       grid-template-rows: 40px minmax(0, 1fr) auto;
     }
