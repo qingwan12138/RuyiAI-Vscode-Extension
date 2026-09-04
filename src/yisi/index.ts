@@ -44,6 +44,7 @@ import { SymbolLookupService, createListSymbolsTool } from './application/contex
 import { VsCodeDocumentSymbolProvider } from './vscode/symbols/vsCodeSymbolProvider';
 import { EditJournalViewer } from './vscode/editJournalViewer';
 import { ContextUsageState, computeContextUsage } from './application/context/contextUsage';
+import { modelContextWindow } from './domain/modelContextWindow';
 import { NodeProcessRunner } from './infrastructure/process/nodeProcessRunner';
 import { VsCodeToolConfirmation } from './vscode/agent/vsCodeToolConfirmation';
 import { VsCodeDiagnosticProvider } from './vscode/diagnostics/vsCodeDiagnosticProvider';
@@ -147,7 +148,7 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
     new VsCodeWorkspaceContextPicker(attachmentService),
     modelControl,
     agentWorkspace.profile,
-    () => readContextUsage(sessions, providerCatalog)
+    () => readContextUsage(sessions, providerCatalog, providerConfigurations)
   );
 
   context.subscriptions.push(
@@ -240,15 +241,21 @@ function readPdfVisionPagesLimit(): number {
 /** Estimated context usage for the active session (as a % of the model window). */
 async function readContextUsage(
   sessions: SessionService,
-  providers: Pick<ProviderCatalog, 'resolve'>
+  providers: Pick<ProviderCatalog, 'resolve'>,
+  configs: ProviderConfigurationService
 ): Promise<ContextUsageState | null> {
   try {
     const session = sessions.getActiveSession();
     if (!session.model.providerId || !session.model.modelId) return null;
     const provider = await providers.resolve(session.model.providerId);
     const capabilities = await provider.capabilities(session.model.modelId);
+    const config = configs.get(session.model.providerId);
+    // A configured contextLength always wins; otherwise fall back to the known
+    // family table so the ring shows a real percentage instead of "–".
+    const windowTokens = capabilities.maxContextTokens
+      ?? modelContextWindow(config?.kind ?? 'openaiCompatible', session.model.modelId, config?.capabilities.contextLength);
     const chars = session.items.reduce((total, item) => total + (item.text?.length ?? 0), 0);
-    return computeContextUsage(chars, capabilities.maxContextTokens);
+    return computeContextUsage(chars, windowTokens);
   } catch {
     return null;
   }
