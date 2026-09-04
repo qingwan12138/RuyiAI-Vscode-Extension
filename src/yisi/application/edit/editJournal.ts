@@ -78,6 +78,80 @@ export function countBytes(text: string): number {
   return Buffer.byteLength(text, 'utf8');
 }
 
+const MAX_DIFF_LINES_PER_SIDE = 1_200;
+
+/**
+ * Render a plain-text, unified-ish diff for the journal viewer. Line-based LCS
+ * alignment with `-`/`+`/` ` prefixes and a small header; files too large for
+ * the bounded LCS fall back to an honest note instead of a noisy dump.
+ */
+export function renderTextDiff(beforeText: string, afterText: string, label: string): string {
+  const beforeLines = splitLines(beforeText);
+  const afterLines = splitLines(afterText);
+  if (beforeLines.length > MAX_DIFF_LINES_PER_SIDE || afterLines.length > MAX_DIFF_LINES_PER_SIDE) {
+    return `${label}: file too large for an inline diff (${beforeLines.length} → ${afterLines.length} lines).`
+      + `\nRemoved lines: ${countChanged(beforeLines, afterLines).removed}, added lines: ${countChanged(beforeLines, afterLines).added}`;
+  }
+  const edit = align(beforeLines, afterLines);
+  if (edit.every(line => line.startsWith(' '))) {
+    return `${label}: no line-level changes detected.`;
+  }
+  const header = [
+    `--- ${label} (before)`,
+    `+++ ${label} (after)`,
+    `@@ -${beforeLines.length} +${afterLines.length} @@`
+  ];
+  return [...header, ...edit].join('\n');
+}
+
+function align(beforeLines: string[], afterLines: string[]): string[] {
+  const beforeCount = beforeLines.length;
+  const afterCount = afterLines.length;
+  const dp = Array.from({ length: beforeCount + 1 }, () => new Uint32Array(afterCount + 1));
+  for (let i = beforeCount - 1; i >= 0; i -= 1) {
+    for (let j = afterCount - 1; j >= 0; j -= 1) {
+      dp[i][j] = beforeLines[i] === afterLines[j]
+        ? dp[i + 1][j + 1] + 1
+        : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const output: string[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < beforeCount && j < afterCount) {
+    if (beforeLines[i] === afterLines[j]) {
+      output.push(` ${beforeLines[i]}`);
+      i += 1;
+      j += 1;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      output.push(`-${beforeLines[i]}`);
+      i += 1;
+    } else {
+      output.push(`+${afterLines[j]}`);
+      j += 1;
+    }
+  }
+  while (i < beforeCount) {
+    output.push(`-${beforeLines[i]}`);
+    i += 1;
+  }
+  while (j < afterCount) {
+    output.push(`+${afterLines[j]}`);
+    j += 1;
+  }
+  return output;
+}
+
+interface LineCounts {
+  added: number;
+  removed: number;
+}
+
+function countChanged(beforeLines: string[], afterLines: string[]): LineCounts {
+  const summary = summarizeTextChange(beforeLines.join('\n'), afterLines.join('\n'));
+  return { added: summary.addedLines, removed: summary.removedLines };
+}
+
 function splitLines(text: string): string[] {
   return text === '' ? [] : text.split(/\r?\n/);
 }

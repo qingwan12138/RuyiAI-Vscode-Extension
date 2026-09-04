@@ -42,6 +42,7 @@ import { RuyiInspectionService, createRuyiInspectTool } from './application/ruyi
 import { RuyiCliAdapter } from './ruyi/ruyiCliAdapter';
 import { SymbolLookupService, createListSymbolsTool } from './application/context/symbolLookupService';
 import { VsCodeDocumentSymbolProvider } from './vscode/symbols/vsCodeSymbolProvider';
+import { EditJournalViewer } from './vscode/editJournalViewer';
 import { NodeProcessRunner } from './infrastructure/process/nodeProcessRunner';
 import { VsCodeToolConfirmation } from './vscode/agent/vsCodeToolConfirmation';
 import { VsCodeDiagnosticProvider } from './vscode/diagnostics/vsCodeDiagnosticProvider';
@@ -155,13 +156,15 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
     vscode.commands.registerCommand('yisiAI.selection.comment', () => chatView.runEditorSelectionTask('comment')),
     vscode.commands.registerCommand('yisiAI.selection.unitTests', () => chatView.runEditorSelectionTask('unitTests')),
     vscode.commands.registerCommand('yisiAI.generateReadme', () => chatView.runProjectDocTask('readme')),
-    vscode.commands.registerCommand('yisiAI.generateApiDocs', () => chatView.runProjectDocTask('apiDocs'))
+    vscode.commands.registerCommand('yisiAI.generateApiDocs', () => chatView.runProjectDocTask('apiDocs')),
+    vscode.commands.registerCommand('yisiAI.showEditJournal', () => showEditJournal(agentWorkspace.edits))
   );
 }
 
 interface AgentWorkspaceServices {
   runner?: AgentChatRunner;
   profile?: ProjectProfileSource;
+  edits?: WorkspaceEditService;
 }
 
 async function createAgentWorkspace(): Promise<AgentWorkspaceServices> {
@@ -206,11 +209,21 @@ async function createAgentWorkspace(): Promise<AgentWorkspaceServices> {
         return inspection.summary;
       }
     };
-    return { runner, profile };
+    return { runner, profile, edits };
   } catch {
     console.warn('[Yisi AI] Local Agent workspace initialization is unavailable.');
     return {};
   }
+}
+
+function showEditJournal(edits?: WorkspaceEditService): void {
+  if (!edits) {
+    void vscode.window.showInformationMessage(
+      'Yisi AI: 编辑 Journal 需要单一本地工作区（Agent 工具当前未启用）。'
+    );
+    return;
+  }
+  void new EditJournalViewer(edits).show();
 }
 
 function getWorkspaceId(): string {

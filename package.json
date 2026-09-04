@@ -50,6 +50,10 @@
       {
         "command": "yisiAI.generateApiDocs",
         "title": "Yisi AI: Generate API Documentation"
+      },
+      {
+        "command": "yisiAI.showEditJournal",
+        "title": "Yisi AI: Show Edit Journal / Undo"
       }
     ],
     "menus": {

@@ -23,6 +23,7 @@ import {
   MAX_JOURNAL_ENTRIES,
   MAX_JOURNAL_TEXT_BYTES,
   countBytes,
+  renderTextDiff,
   summarizeTextChange
 } from './editJournal';
 
@@ -48,6 +49,29 @@ export interface WorkspaceMutationToolResult<T> {
 
 export type WorkspaceEditToolResult = WorkspaceMutationToolResult<WorkspaceTextReplacementResult>;
 export type WorkspaceFileCreationToolResult = WorkspaceMutationToolResult<WorkspaceTextFileCreationResult>;
+
+/** Journal entry as exposed to the viewer (no retained raw content). */
+export interface EditJournalViewEntry {
+  id: string;
+  kind: JournalMutationKind;
+  path: string;
+  reversibility: EditJournalEntry['reversibility'];
+  reason?: string;
+  addedLines?: number;
+  removedLines?: number;
+  addedPreview: string[];
+  removedPreview: string[];
+  /** True when it is the most recent entry (only that one can be undone). */
+  isMostRecent: boolean;
+}
+
+/** Human-readable diff/description of one journaled change. */
+export interface EditJournalDiff {
+  id: string;
+  kind: JournalMutationKind;
+  path: string;
+  text: string;
+}
 
 export class WorkspaceEditService {
   private readonly agentCreatedFiles = new Set<string>();
@@ -208,6 +232,41 @@ export class WorkspaceEditService {
     }
     this.journal.pop();
     return { undone: true, kind: entry.kind, path: entry.path };
+  }
+
+  /** Snapshot of the journal for the viewer (recent entry flagged). */
+  journalSnapshot(): EditJournalViewEntry[] {
+    const mostRecentId = this.journal.length > 0 ? this.journal[this.journal.length - 1].id : undefined;
+    return this.journal.map(entry => ({
+      id: entry.id,
+      kind: entry.kind,
+      path: entry.path,
+      reversibility: entry.reversibility,
+      ...(entry.reason !== undefined ? { reason: entry.reason } : {}),
+      ...(entry.summary !== undefined ? { addedLines: entry.summary.addedLines, removedLines: entry.summary.removedLines } : {}),
+      addedPreview: entry.summary?.addedPreview ?? [],
+      removedPreview: entry.summary?.removedPreview ?? [],
+      isMostRecent: entry.id === mostRecentId
+    }));
+  }
+
+  /** Human-readable diff/description of one journaled change. */
+  journalDiffText(entryId: string): EditJournalDiff | undefined {
+    const entry = this.journal.find(candidate => candidate.id === entryId);
+    if (!entry) return undefined;
+    let text: string;
+    if (entry.capturedBeforeText !== undefined && entry.capturedAfterText !== undefined) {
+      text = renderTextDiff(entry.capturedBeforeText, entry.capturedAfterText, `${entry.path} · ${entry.kind}`);
+    } else if (entry.kind === 'rename_file' && entry.capturedToPath !== undefined) {
+      text = `renamed ${entry.capturedToPath} → ${entry.path}`;
+    } else if (entry.kind === 'create_text_file') {
+      text = `${entry.path}: created (content not retained in the journal)`;
+    } else if (entry.capturedBeforeText !== undefined) {
+      text = renderTextDiff(entry.capturedBeforeText, '', `${entry.path} · ${entry.kind}`);
+    } else {
+      text = `${entry.kind} ${entry.path}: full content not retained; ${entry.reason ?? 'no inline diff available'}`;
+    }
+    return { id: entry.id, kind: entry.kind, path: entry.path, text };
   }
 
   private async captureBefore(relativePath: string, signal?: AbortSignal): Promise<string | undefined> {
