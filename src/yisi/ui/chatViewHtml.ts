@@ -729,9 +729,10 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     .ctx-ring {
       flex: none;
       position: relative;
-      width: 20px;
-      height: 20px;
+      width: 22px;
+      height: 22px;
       border-radius: 50%;
+      border: 1px solid var(--yisi-border);
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -751,8 +752,8 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     .ctx-ring-text {
       position: relative;
       z-index: 1;
-      font-size: 7px;
-      font-weight: 600;
+      font-size: 8px;
+      font-weight: 700;
       line-height: 1;
       pointer-events: none;
     }
@@ -918,7 +919,7 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
         <div class="context-chips" id="contextChips" aria-label="Attached context"></div>
         <div class="composer-footer">
           <div class="composer-left">
-            <span class="ctx-ring" id="ctxRing" title="Context usage" hidden>
+            <span class="ctx-ring" id="ctxRing" title="Context usage">
               <span class="ctx-ring-text" id="ctxRingText">–</span>
             </span>
             <button class="control-button" id="addContext" type="button" title="Add context">
@@ -1255,13 +1256,13 @@ ${permissionClientScript()}
       const ring = document.getElementById('ctxRing');
       const text = document.getElementById('ctxRingText');
       if (!ring || !text) return;
-      if (!usage) { ring.hidden = true; return; }
-      ring.hidden = false;
-      if (!usage.supported) {
+      // The ring is always visible; without a known model/context window it
+      // degrades to a grey "–" instead of hiding (which read as "not working").
+      if (!usage || !usage.supported) {
         ring.classList.add('unknown');
-        ring.style.background = '';
+        ring.style.background = 'conic-gradient(var(--yisi-accent) 0%, var(--yisi-border) 0)';
         text.textContent = '–';
-        ring.title = 'Context window unknown for the selected model';
+        ring.title = usage ? 'Context window unknown for the selected model' : 'Select a model to see context usage';
         return;
       }
       ring.classList.remove('unknown');
