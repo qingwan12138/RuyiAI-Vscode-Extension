@@ -1,3 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <path fill="currentColor" d="M4 4h4.1L12 10.2 15.9 4H20l-6 9.2V20h-4v-6.8L4 4z"/>
+  <!-- Yisi AI activity-bar mark: geometric "Y" monogram + AI neural node.
+       Static neutral gray so it stays visible on both dark and light themes
+       (VS Code renders contributed activity-bar icons as-is, no recolor). -->
+  <g fill="none" stroke="#C5C5C5" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6.2 4.6 L12 11.7 L17.8 4.6"/>
+    <path d="M12 11.7 L12 19.4"/>
+  </g>
+  <circle cx="18.1" cy="18.1" r="1.9" fill="#C5C5C5"/>
 </svg>

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- Yisi AI alternate: "intelligence chip" — rounded chip + neural triangle of nodes -->
+  <g fill="none" stroke="#C5C5C5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3.6" y="3.6" width="16.8" height="16.8" rx="4.4"/>
+    <path d="M9.4 14.8 L12 9.6 L14.6 14.8"/>
+    <path d="M8 17.2 L16 17.2"/>
+  </g>
+  <g fill="#C5C5C5">
+    <circle cx="9.4" cy="14.8" r="1.15"/>
+    <circle cx="14.6" cy="14.8" r="1.15"/>
+    <circle cx="12" cy="9.6" r="1.15"/>
+  </g>
+</svg>
