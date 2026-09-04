@@ -1,0 +1,7 @@
+{
+  "name": "agent-loop-demo",
+  "private": true,
+  "scripts": {
+    "test": "node --test calc.test.mjs"
+  }
+}
