@@ -58,15 +58,15 @@
       {
         "command": "yisiAI.focus",
         "title": "Yisi AI: Open Chat",
-        "icon": "$(yisiAI)"
+        "icon": "$(yisi-ai)"
       }
     ],
     "icons": {
-      "yisiAI": {
+      "yisi-ai": {
         "description": "Yisi AI",
         "default": {
-          "light": "media/yisi-tech.svg",
-          "dark": "media/yisi-tech.svg"
+          "light": "media/yisi-tech-light.svg",
+          "dark": "media/yisi-tech-dark.svg"
         }
       }
     },
