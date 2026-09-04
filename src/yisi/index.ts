@@ -38,6 +38,8 @@ import {
 } from './application/process/commandExecutionService';
 import { ProjectProfileService, createInspectProjectTool } from './application/context/projectProfileService';
 import { ValidationPlannerService, createRunValidationsTool } from './application/validation/validationPlannerService';
+import { RuyiInspectionService, createRuyiInspectTool } from './application/ruyi/ruyiInspectionService';
+import { RuyiCliAdapter } from './ruyi/ruyiCliAdapter';
 import { NodeProcessRunner } from './infrastructure/process/nodeProcessRunner';
 import { VsCodeToolConfirmation } from './vscode/agent/vsCodeToolConfirmation';
 import { VsCodeDiagnosticProvider } from './vscode/diagnostics/vsCodeDiagnosticProvider';
@@ -173,6 +175,7 @@ async function createAgentWorkspace(): Promise<AgentWorkspaceServices> {
     const commands = new CommandExecutionService(new NodeProcessRunner(), workspace.fsPath);
     const profileService = new ProjectProfileService(fileSystem);
     const validationPlanner = new ValidationPlannerService(commands, profileService);
+    const ruyiInspection = new RuyiInspectionService(commands, new RuyiCliAdapter());
     const tools = [
       ...createWorkspaceContextTools(new WorkspaceContextService(fileSystem)),
       createWorkspaceEditTool(edits),
@@ -184,7 +187,8 @@ async function createAgentWorkspace(): Promise<AgentWorkspaceServices> {
       createUndoLastEditTool(edits),
       createRunCommandTool(commands),
       createInspectProjectTool(profileService),
-      createRunValidationsTool(validationPlanner)
+      createRunValidationsTool(validationPlanner),
+      createRuyiInspectTool(ruyiInspection)
     ];
     const runner = new AgentChatRunner(
       new ToolRegistry(tools),
