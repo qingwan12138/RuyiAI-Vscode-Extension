@@ -112,3 +112,16 @@ npm run compile
 ```
 
 然后在 VS Code 中按 `F5`，启动 `Run Yisi AI Extension`。当前 starter 验证 Extension manifest、Webview、Session、Provider 配置、流式聊天和有界 Agent 工具链路。详细见 `docs/17_RUNNABLE_BASELINE.md`。
+
+## 更换 Yisi 图标（活动栏 + 右上角/状态栏）
+
+图标有**单一源文件**：`media/iconfont/yisi-icon.svg`（填充版、font-safe）。它同时生成：
+- **左侧活动栏图标**：`media/yisi-tech.svg`；
+- **右上角 / 状态栏图标**：由它生成的图标字体 `media/iconfont/yisi-icons.woff2`（经 `contributes.icons` 注册，命令 `yisiAI.focus` 的 `$(yisi-ai)`）。
+
+**更换步骤**：
+1. 用新图形替换 `media/iconfont/yisi-icon.svg`（保持 24×24、fill、font-safe path）；
+2. 运行 `npm run refresh:icons`（重新生成 `yisi-icons.woff2`）；
+3. 若生成的字体字符变了，更新 `package.json` 里 `contributes.icons.yisi-ai.default.fontCharacter`（看 `media/iconfont/yisi-icons.css` 里的 `content`）；
+4. 把新图形也同步到 `media/yisi-tech.svg`（或跑脚本后手动替换），保持活动栏一致；
+5. `F5` 验证。图标字体由 VS Code 按主题着色，无需关心颜色。
