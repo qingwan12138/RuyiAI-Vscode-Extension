@@ -64,7 +64,6 @@
       "editor/title": [
         {
           "command": "yisiAI.focus",
-          "when": "resourceScheme == 'file' || resourceScheme == 'untitled'",
           "group": "navigation@1"
         }
       ],
