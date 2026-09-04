@@ -80,7 +80,7 @@
         {
           "id": "yisiAI",
           "title": "Yisi AI",
-          "icon": "media/yisi.svg"
+          "icon": "media/yisi-tech.svg"
         }
       ]
     },
@@ -90,7 +90,7 @@
           "type": "webview",
           "id": "yisiAI.chat",
           "name": "Chat",
-          "icon": "media/yisi.svg"
+          "icon": "media/yisi-tech.svg"
         }
       ]
     },
@@ -148,3 +148,4 @@
     "read-excel-file": "^9.3.10"
   }
 }
+

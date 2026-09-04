@@ -46,6 +46,13 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       --yisi-surface-hover: color-mix(in srgb, var(--vscode-list-hoverBackground) 86%, transparent);
       --yisi-accent: var(--vscode-button-background);
       --yisi-accent-fg: var(--vscode-button-foreground);
+      /* Tech-surface variables: all derived from theme colours at low alpha so
+         dark/light stay readable; brand yellow keeps the Ruyi accent. */
+      --yisi-brand: #f2b51d;
+      --yisi-halo: color-mix(in srgb, #f2b51d 10%, transparent);
+      --yisi-halo-soft: color-mix(in srgb, #f2b51d 22%, transparent);
+      --yisi-grid: color-mix(in srgb, var(--vscode-panel-border) 52%, transparent);
+      --yisi-accent-soft: color-mix(in srgb, var(--vscode-button-background) 14%, transparent);
     }
 
     * {
@@ -140,6 +147,7 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     }
 
     .welcome {
+      position: relative;
       flex: 1;
       min-height: 310px;
       padding: 34px 18px 18px;
@@ -148,6 +156,24 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       align-items: center;
       justify-content: center;
       text-align: center;
+      overflow: hidden;
+    }
+
+    /* Faint engineering grid + soft brand halo behind the central mark. */
+    .welcome::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(340px 230px at 50% 30%, var(--yisi-halo), transparent 72%),
+        repeating-linear-gradient(0deg, var(--yisi-grid) 0 1px, transparent 1px 24px),
+        repeating-linear-gradient(90deg, var(--yisi-grid) 0 1px, transparent 1px 24px);
+      opacity: .6;
+    }
+
+    .welcome > * {
+      position: relative;
     }
 
     .brand-name {
@@ -157,11 +183,24 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       font-weight: 600;
       letter-spacing: .01em;
     }
+
     .ruyi-mark {
       position: relative;
       width: 94px;
       height: 94px;
       margin-bottom: 18px;
+      isolation: isolate;
+    }
+
+    /* Thin brand ring that reads like a sensor/retical around the mark. */
+    .ruyi-mark::before {
+      content: '';
+      position: absolute;
+      inset: -10px;
+      border-radius: 50%;
+      border: 1px solid var(--yisi-halo-soft);
+      box-shadow: 0 0 26px -8px var(--yisi-halo-soft);
+      opacity: .9;
     }
 
     .ruyi-mark-layer {
@@ -193,6 +232,17 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     body.vscode-high-contrast .ruyi-mark-accent,
     body.vscode-high-contrast-light .ruyi-mark-accent {
       background-color: var(--vscode-foreground);
+    }
+
+    /* High-contrast modes drop the decorative halo/grid/ring entirely. */
+    body.vscode-high-contrast .welcome::before,
+    body.vscode-high-contrast-light .welcome::before {
+      background: none;
+    }
+
+    body.vscode-high-contrast .ruyi-mark::before,
+    body.vscode-high-contrast-light .ruyi-mark::before {
+      display: none;
     }
 
     .welcome-title {
@@ -230,10 +280,12 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       text-align: left;
       font-size: 11px;
       line-height: 1.3;
+      transition: border-color 120ms ease, background-color 120ms ease;
     }
 
     .quick-action:hover {
       background: var(--yisi-surface-hover);
+      border-color: var(--yisi-accent-soft);
     }
 
     .conversation {
@@ -282,6 +334,13 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
 
     @keyframes yisi-cursor {
       50% { opacity: 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        animation: none !important;
+        transition: none !important;
+      }
     }
 
     .history-panel {
@@ -445,6 +504,11 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       background: var(--vscode-input-background);
       box-shadow: 0 1px 6px rgba(0,0,0,.08);
       overflow: hidden;
+    }
+
+    .composer:focus-within {
+      border-color: color-mix(in srgb, var(--vscode-focusBorder) 72%, transparent);
+      box-shadow: 0 0 0 2px var(--yisi-accent-soft);
     }
 
     .composer textarea {
