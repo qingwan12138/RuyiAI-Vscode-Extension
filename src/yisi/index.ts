@@ -151,8 +151,8 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
     () => readContextUsage(sessions, providerCatalog, providerConfigurations)
   );
   const yisiStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  yisiStatus.text = '$(symbol-method)';
-  yisiStatus.tooltip = 'Yisi AI';
+  yisiStatus.text = '✦ Yisi';
+  yisiStatus.tooltip = 'Open Yisi AI';
   yisiStatus.command = 'yisiAI.focus';
   yisiStatus.show();
 
