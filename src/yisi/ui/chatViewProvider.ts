@@ -10,6 +10,11 @@ import { AttachmentOutcome } from '../application/attachment/attachmentService';
 import { ATTACHMENT_LIMITS } from '../context/attachment/attachmentTypes';
 import { ModelControlService } from '../application/modelControl/modelControlService';
 import type { PermissionMode } from '../domain/session';
+import {
+  EditorSelectionTaskKind,
+  buildSelectionTaskMessage
+} from '../application/chat/editorSelectionTask';
+import { collectActiveEditorSelection } from '../vscode/selection/editorSelectionTaskAdapter';
 
 export class YisiChatViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
@@ -75,6 +80,47 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
 
   continueCurrentSession(): void {
     void this.view?.webview.postMessage({ type: 'continueRequested' });
+  }
+
+  /**
+   * Entry point for the editor selection commands (context menu / palette).
+   * Collects the active editor selection, verifies an idle session with a
+   * configured model, then starts the same chat/agent run the composer uses so
+   * the assistant answer and any tool activity persist into the active session.
+   * If the Chat view is not open yet the reply is still persisted and appears
+   * when the panel is revealed (streaming deltas are best-effort).
+   */
+  async runEditorSelectionTask(kind: EditorSelectionTaskKind): Promise<void> {
+    const context = collectActiveEditorSelection();
+    if (!context) {
+      await vscode.window.showWarningMessage(
+        'Yisi AI: 请先在编辑器中选中一段代码，再执行该选区任务。'
+      );
+      return;
+    }
+    if (this.runs.isRunning()) {
+      await vscode.window.showInformationMessage(
+        'Yisi AI: 请先停止当前运行，再发起新的选区任务。'
+      );
+      return;
+    }
+    const active = this.sessions.getActiveSession();
+    if (!active.model.providerId || !active.model.modelId) {
+      const action = await vscode.window.showInformationMessage(
+        'Yisi AI: 当前会话尚未选择模型，无法运行选区任务。',
+        '打开模型设置',
+        '取消'
+      );
+      if (action === '打开模型设置') {
+        await this.openModelSettings();
+      }
+      return;
+    }
+    // Best-effort reveal so the user sees the turn stream when the view can
+    // resolve in time; a late resolve still converges through publishState.
+    void vscode.commands.executeCommand('yisiAI.chat.focus');
+    await this.runs.start(buildSelectionTaskMessage(kind, context));
+    await this.publishState();
   }
 
   private async handleMessage(message: WebviewMessage): Promise<void> {

@@ -27,6 +27,11 @@ import {
   createWorkspaceEditTool,
   createWorkspaceFileTool
 } from './application/edit/workspaceEditService';
+import {
+  CommandExecutionService,
+  createRunCommandTool
+} from './application/process/commandExecutionService';
+import { NodeProcessRunner } from './infrastructure/process/nodeProcessRunner';
 import { VsCodeToolConfirmation } from './vscode/agent/vsCodeToolConfirmation';
 import { VsCodeDiagnosticProvider } from './vscode/diagnostics/vsCodeDiagnosticProvider';
 
@@ -132,7 +137,10 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
     vscode.commands.registerCommand('yisiAI.newChat', () => chatView.newSession()),
     vscode.commands.registerCommand('yisiAI.openSettings', () => chatView.openModelSettings()),
     vscode.commands.registerCommand('yisiAI.stop', () => chatView.stopCurrentRun()),
-    vscode.commands.registerCommand('yisiAI.continue', () => chatView.continueCurrentSession())
+    vscode.commands.registerCommand('yisiAI.continue', () => chatView.continueCurrentSession()),
+    vscode.commands.registerCommand('yisiAI.selection.explain', () => chatView.runEditorSelectionTask('explain')),
+    vscode.commands.registerCommand('yisiAI.selection.comment', () => chatView.runEditorSelectionTask('comment')),
+    vscode.commands.registerCommand('yisiAI.selection.unitTests', () => chatView.runEditorSelectionTask('unitTests'))
   );
 }
 
@@ -146,10 +154,12 @@ async function createAgentRunner(): Promise<AgentChatRunner | undefined> {
       getWorkspaceFolder: uri => vscode.workspace.getWorkspaceFolder(uri as vscode.Uri)
     }, [workspace.uri], 50);
     const edits = new WorkspaceEditService(fileSystem, diagnostics);
+    const commands = new CommandExecutionService(new NodeProcessRunner(), workspace.fsPath);
     const tools = [
       ...createWorkspaceContextTools(new WorkspaceContextService(fileSystem)),
       createWorkspaceEditTool(edits),
-      createWorkspaceFileTool(edits)
+      createWorkspaceFileTool(edits),
+      createRunCommandTool(commands)
     ];
     return new AgentChatRunner(
       new ToolRegistry(tools),

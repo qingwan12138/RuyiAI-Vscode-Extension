@@ -149,22 +149,62 @@ test('executes a confirmed workspace edit and fails closed when approval is reje
   assert.equal(executions.length, 1);
 });
 
-test('fails closed when a non-read-only tool is accidentally registered', async () => {
+test('admits permission-gated process-exec tools but still fails closed out of scope', async () => {
+  // processExec is admitted and executed when the permission engine allows it
+  // (session full access), without any confirmation port.
   let executed = false;
-  const unsafe = tool('run_command', async () => { executed = true; });
-  unsafe.risk = 'processExec';
-  const loop = new ReadOnlyAgentLoop(
-    provider([[call('c1', 'run_command', { path: 'ignored' })]]),
-    new ToolRegistry([unsafe]),
-    { evaluate: () => ({ outcome: 'allow', allowed: true, needsConfirmation: false, reason: 'incorrect allow' }) }
+  const runTool = tool('run_command', async input => { executed = true; return { status: 'exited', exitCode: 0 }; });
+  runTool.risk = 'processExec';
+  runTool.mutatesWorkspace = true;
+  const admitted = new ReadOnlyAgentLoop(
+    provider([[call('c1', 'run_command', { executable: 'ctest' })], [text('tests ok')]]),
+    new ToolRegistry([runTool]),
+    new PermissionEngine()
   );
   const signal = new AbortController().signal;
+  const admittedResult = await admitted.run(request, context(signal), 'fullAccess', () => {}, signal);
+  assert.equal(admittedResult.status, 'completed');
+  assert.equal(admittedResult.finalText, 'tests ok');
+  assert.equal(executed, true);
 
-  const result = await loop.run(request, context(signal), 'fullAccess', () => {}, signal);
+  // Out-of-scope risks (destructive / network / environment) never reach execute.
+  for (const risk of ['destructive', 'network', 'environmentChange']) {
+    let touched = false;
+    const unsafe = tool('run_command', async () => { touched = true; });
+    unsafe.risk = risk;
+    unsafe.mutatesWorkspace = true;
+    const loop = new ReadOnlyAgentLoop(
+      provider([[call('c1', 'run_command', { executable: 'ctest' })]]),
+      new ToolRegistry([unsafe]),
+      { evaluate: () => ({ outcome: 'allow', allowed: true, needsConfirmation: false, reason: 'incorrect allow' }) }
+    );
+    const result = await loop.run(request, context(signal), 'fullAccess', () => {}, signal);
+    assert.equal(result.status, 'blocked', `${risk} must stay out of the bounded scope`);
+    assert.match(result.reason, /Agent tool scope/i);
+    assert.equal(touched, false);
+  }
+});
 
+test('keeps process-exec commands behind explicit confirmation in manual mode', async () => {
+  let executed = false;
+  const runTool = tool('run_command', async () => { executed = true; return { status: 'exited', exitCode: 0 }; });
+  runTool.risk = 'processExec';
+  runTool.mutatesWorkspace = true;
+  const approvals = [];
+  const declined = new ReadOnlyAgentLoop(
+    provider([[call('c1', 'run_command', { executable: 'ctest' })]]),
+    new ToolRegistry([runTool]),
+    new PermissionEngine(),
+    {},
+    { confirm: async request => { approvals.push(request); return false; } }
+  );
+  const signal = new AbortController().signal;
+  const result = await declined.run(request, context(signal), 'manual', () => {}, signal);
   assert.equal(result.status, 'blocked');
-  assert.match(result.reason, /Agent tool scope/i);
+  assert.match(result.reason, /declined/i);
   assert.equal(executed, false);
+  assert.equal(approvals.length, 1);
+  assert.equal(approvals[0].toolId, 'run_command');
 });
 
 test('returns bounded tool failures to the provider so it can recover', async () => {

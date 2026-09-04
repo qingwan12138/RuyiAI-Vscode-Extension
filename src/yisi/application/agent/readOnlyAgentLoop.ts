@@ -134,7 +134,11 @@ export class AgentToolLoop {
         if (!tool) return blocked(`Unknown tool: ${bounded(call.name, 128)}`, executions);
         const isRead = tool.risk === 'readOnly' && !tool.mutatesWorkspace;
         const isWorkspaceWrite = tool.risk === 'workspaceWrite' && tool.mutatesWorkspace;
-        if (!isRead && !isWorkspaceWrite) {
+        // processExec (build/test/lint/analysis via the structured runner) is
+        // admitted but stays fully permission-gated below: plan denies, other
+        // modes require confirmation unless the session grants full access.
+        const isProcessExec = tool.risk === 'processExec' && tool.mutatesWorkspace;
+        if (!isRead && !isWorkspaceWrite && !isProcessExec) {
           return blocked('Tool is outside the bounded Agent tool scope.', executions);
         }
         const decision = this.permissions.evaluate(mode, {
@@ -202,6 +206,8 @@ export class AgentToolLoop {
 }
 
 // Compatibility export while callers migrate from the initial read-only slice.
+// The loop has since widened to bounded workspace writes and permission-gated
+// process execution (see AgentToolLoop).
 export { AgentToolLoop as ReadOnlyAgentLoop };
 
 function blocked(reason: string, executions: AgentToolExecutionEvidence[]): AgentLoopResult {
