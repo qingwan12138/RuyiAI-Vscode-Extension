@@ -135,10 +135,19 @@
           "items": {
             "type": "object",
             "properties": {
-              "model": { "type": "string", "description": "Substring of the model id (case-insensitive)." },
-              "windowTokens": { "type": "number", "description": "Context window in tokens." }
+              "model": {
+                "type": "string",
+                "description": "Substring of the model id (case-insensitive)."
+              },
+              "windowTokens": {
+                "type": "number",
+                "description": "Context window in tokens."
+              }
             },
-            "required": ["model", "windowTokens"]
+            "required": [
+              "model",
+              "windowTokens"
+            ]
           },
           "default": [],
           "scope": "window",
@@ -162,6 +171,7 @@
   },
   "icon": "media/ruyi-logo.png",
   "dependencies": {
+    "gpt-tokenizer": "^4.0.0",
     "jszip": "^3.10.1",
     "mammoth": "^1.12.2",
     "pdfjs-dist": "^3.11.174",

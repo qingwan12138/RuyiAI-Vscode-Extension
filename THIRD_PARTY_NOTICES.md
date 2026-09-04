@@ -19,6 +19,7 @@ so the extension never pays their load cost during activation.
 | mammoth | 1.12.2 | BSD-2-Clause | Extracts `.docx` text via `extractRawText({ buffer })`; document order preserves headings/paragraphs/lists/tables as plain text. |
 | read-excel-file | 9.3.10 | MIT | Read-only `.xlsx` parser (`require('read-excel-file/node')`); worksheet/row counts are bounded before rendering. Replaces the previously considered `xlsx` (SheetJS), whose npm distribution carried known vulnerabilities. |
 | jszip | 3.10.1 | MIT | Reads Office container central directories for `.docx`/`.pptx`/`.xlsx`; also drives the decompression-bomb guards (`zipSafety.ts`) before any entry is inflated. |
+| gpt-tokenizer | 4.0.0 | MIT | Pure-JS Byte Pair Encoder for OpenAI model families (`o200k_base`/`cl100k_base`). Used only to count tokens for the composer context-usage ring; the raw text is never sent to this library's authors and inference is fully local. Non-OpenAI models (DeepSeek/Qwen/Llama/Claude) fall back to a bilingual heuristic (`contextUsage.estimateTokens`). |
 
 Rationale (dependency policy): `VS Code API > Node stdlib > lightweight pure
 TS/JS package > larger pure-JS package`; native/`node-gyp`/C++/Rust/Python/
