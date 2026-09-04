@@ -1,9 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <!-- Yisi AI brand mark (activity bar). Identical warping to the icon-font
-       source media/iconfont/yisi-icon.svg so the activity bar and the top-right
-       / status icon match. Swap the source + `npm run refresh:icons` to change. -->
-  <path fill="#C5C5C5" fill-rule="nonzero"
-    d="M12 1 L23 12 L12 23 L1 12 Z
-       M12 5.4 L5.4 12 L12 18.6 L18.6 12 Z
-       M12 9.4 L14.6 12 L12 14.6 L9.4 12 Z"/>
+  <!-- Yisi AI "tech core" activity-bar mark: a rotated-square chip (diamond)
+       with a central neural/circuit node. Static neutral gray; readable at
+       24px on dark and light themes. -->
+  <g fill="none" stroke="#C5C5C5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3.1 L20.9 12 L12 20.9 L3.1 12 Z"/>
+    <path d="M12 12 L12 7.2"/>
+    <path d="M12 12 L16.3 12"/>
+    <path d="M12 12 L8.6 15.6"/>
+  </g>
+  <circle cx="12" cy="12" r="1.9" fill="#C5C5C5"/>
 </svg>

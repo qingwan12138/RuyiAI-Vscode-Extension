@@ -1,10 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-  <!-- Yisi AI brand mark (single source of truth). The ring hole is created by
-       OPPOSITE path winding (non-zero rule), which both SVG renderers and icon
-       font tools honor — not `fill-rule="evenodd"`, which font generators drop.
-       Replace this file and run `npm run refresh:icons`. -->
+  <!-- Filled version of the Yisi AI brand mark for the icon font: diamond ring +
+       center node + 3 traces. Font glyphs must be filled; the ring hole uses
+       opposite path winding (non-zero), which font tools honor. Keep in sync
+       with media/yisi-tech.svg. Swap + `npm run refresh:icons` to change. -->
   <path fill="#000" fill-rule="nonzero"
-    d="M12 1 L23 12 L12 23 L1 12 Z
-       M12 5.4 L5.4 12 L12 18.6 L18.6 12 Z
-       M12 9.4 L14.6 12 L12 14.6 L9.4 12 Z"/>
+    d="M12 2 L22 12 L12 22 L2 12 Z
+       M12 4.6 L4.6 12 L12 19.4 L19.4 12 Z
+       M12 10.7 L13.3 12 L12 13.3 L10.7 12 Z
+       M11.55 6.6 L12.45 6.6 L12.45 12 L11.55 12 Z
+       M12 11.55 L16.3 11.55 L16.3 12.45 L12 12.45 Z
+       M12.35 12.35 L8.95 15.95 L8.25 15.25 L11.65 11.65 Z"/>
 </svg>
