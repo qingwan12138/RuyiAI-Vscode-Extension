@@ -37,6 +37,7 @@ import {
   createRunCommandTool
 } from './application/process/commandExecutionService';
 import { ProjectProfileService, createInspectProjectTool } from './application/context/projectProfileService';
+import { ValidationPlannerService, createRunValidationsTool } from './application/validation/validationPlannerService';
 import { NodeProcessRunner } from './infrastructure/process/nodeProcessRunner';
 import { VsCodeToolConfirmation } from './vscode/agent/vsCodeToolConfirmation';
 import { VsCodeDiagnosticProvider } from './vscode/diagnostics/vsCodeDiagnosticProvider';
@@ -169,6 +170,7 @@ async function createAgentWorkspace(): Promise<AgentWorkspaceServices> {
     const edits = new WorkspaceEditService(fileSystem, diagnostics, fileSystem);
     const commands = new CommandExecutionService(new NodeProcessRunner(), workspace.fsPath);
     const profileService = new ProjectProfileService(fileSystem);
+    const validationPlanner = new ValidationPlannerService(commands, profileService);
     const tools = [
       ...createWorkspaceContextTools(new WorkspaceContextService(fileSystem)),
       createWorkspaceEditTool(edits),
@@ -179,7 +181,8 @@ async function createAgentWorkspace(): Promise<AgentWorkspaceServices> {
       createWorkspaceDirectoryTool(edits),
       createUndoLastEditTool(edits),
       createRunCommandTool(commands),
-      createInspectProjectTool(profileService)
+      createInspectProjectTool(profileService),
+      createRunValidationsTool(validationPlanner)
     ];
     const runner = new AgentChatRunner(
       new ToolRegistry(tools),
