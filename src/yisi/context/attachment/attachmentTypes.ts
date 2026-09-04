@@ -51,6 +51,11 @@ export interface AttachmentExtractOptions {
   signal?: AbortSignal;
   /** PDF: also collect page images (scanned/image-only pages) for vision models. */
   imagesForVision?: boolean;
+  /**
+   * PDF-for-vision: how many raster pages to turn into images (0 = the whole
+   * document, still bounded by the hard ceiling in ATTACHMENT_LIMITS).
+   */
+  pdfVisionPages?: number;
 }
 
 export interface AttachmentChunk {
@@ -144,8 +149,8 @@ export const ATTACHMENT_LIMITS = Object.freeze({
   maxNotebookCells: 300,
   /** Composer keeps at most this many pending attachments per session. */
   maxAttachmentsPerSession: 6,
-  /** PDF-for-vision: at most this many pages become images. */
-  maxPdfVisionPages: 4,
+  /** PDF-for-vision: hard ceiling on how many pages become images. */
+  maxPdfVisionPages: 250,
   /** PDF-for-vision: per-page pixel ceiling (area) after downscaling. */
   maxPdfVisionPixels: 1_600_000,
   /** PDF-for-vision: per-page encoded PNG byte ceiling. */

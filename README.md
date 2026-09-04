@@ -98,7 +98,7 @@ Remote-SSH 不作为当前 v1.0 必须交付能力，后续需要时再单独增
 3. API Key 可存入 VS Code SecretStorage，或只填写环境变量名；可信的本地兼容端点可选择无凭据。
 4. 明确选择 Provider 是否支持 OpenAI-compatible tool calling；不确定时选择 `Text chat only`。
 5. 选择模型和 Session 权限模式后发送消息；生成期间发送按钮变为 Stop。启用 tools 且只有一个本地工作区时，模型可请求 Read/List/Search；非 Plan 模式还可按权限策略请求一次唯一文本替换。
-6. 点击 Composer 左侧 `＋` 可显式附加当前工作区内的 UTF-8 文本文件；Session 只保存文件引用，原始文件内容仅用于当次请求。附加**扫描/图片型 PDF** 时：若当前模型支持视觉且传输可用，插件会把 PDF 页解析成有界 PNG（默认前 4 页、每页 ≤160 万像素）随对话发送，模型可直接“看图”；当前模型无视觉时给出明确提示。
+6. 点击 Composer 左侧 `＋` 可显式附加当前工作区内的 UTF-8 文本文件；Session 只保存文件引用，原始文件内容仅用于当次请求。附加**扫描/图片型 PDF** 时：若当前模型支持视觉且传输可用，插件会把 PDF 页解析成有界 PNG（默认**整份文档**全部页，每页 ≤160 万像素；可用设置 `yisiAI.pdfVisionMaxPages` 限制页数）随对话发送，模型可直接“看图”；当前模型无视觉时给出明确提示。
 
 Provider 普通元数据与密钥分开保存。自定义本地端点允许 HTTP；官方 OpenAI 配置强制 HTTPS。当前自动化测试使用本地 fake HTTP/SSE 服务，不代表已使用用户的真实云账号完成联网验收。
 

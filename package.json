@@ -123,6 +123,12 @@
           "default": [],
           "scope": "window",
           "description": "Extra phrases (spacing and case ignored) that should also be treated as identity questions and answered through the bare chat path."
+        },
+        "yisiAI.pdfVisionMaxPages": {
+          "type": "number",
+          "default": 0,
+          "scope": "window",
+          "description": "How many scanned/image PDF pages are attached as images for vision-capable models. 0 = the whole document (a 250-page safety ceiling still applies). Higher values cost more tokens per attachment."
         }
       }
     }

@@ -81,6 +81,15 @@ export interface AttachmentVisionProbe {
   getVisionCapability(): Promise<VisionCapability>;
 }
 
+/** Runtime-tunable attachment options (resolved per attach by the host). */
+export interface AttachmentServiceOptions {
+  /**
+   * How many scanned/image PDF pages to attach as images (0 = whole document,
+   * bounded by the extractor's hard ceiling). Defaults to 0 (all pages).
+   */
+  getPdfVisionPagesLimit?: () => number;
+}
+
 /**
  * Re-reads a previously attached file by its persisted session reference so
  * attachments stay referenceable across turns. Implemented in the vscode layer
@@ -100,7 +109,8 @@ const UNSUPPORTED_BINARY_MESSAGE = 'This binary file type cannot be attached as 
 export class AttachmentService {
   constructor(
     private readonly extractors: AttachmentExtractorRegistry,
-    private readonly visionProbe?: AttachmentVisionProbe
+    private readonly visionProbe?: AttachmentVisionProbe,
+    private readonly options: AttachmentServiceOptions = {}
   ) {}
 
   async attachMany(candidates: AttachmentCandidate[], signal?: AbortSignal): Promise<AttachmentOutcome[]> {
@@ -202,7 +212,9 @@ export class AttachmentService {
       // chain (model + provider transport) can carry them.
       imagesForVision: guess.kind === 'pdf'
         && capability.modelSupported
-        && capability.transportSupported
+        && capability.transportSupported,
+      // 0 = whole document (extractor still enforces its hard ceiling).
+      pdfVisionPages: this.options.getPdfVisionPagesLimit?.() ?? 0
     };
 
     let result: AttachmentExtractionResult;

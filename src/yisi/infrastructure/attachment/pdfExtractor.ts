@@ -204,6 +204,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Pages to turn into images: option when set (>0), else the hard ceiling. */
+function resolvePdfVisionPageLimit(options: AttachmentExtractOptions): number {
+  const ceiling = ATTACHMENT_LIMITS.maxPdfVisionPages;
+  const requested = typeof options.pdfVisionPages === 'number' && options.pdfVisionPages > 0
+    ? Math.floor(options.pdfVisionPages)
+    : ceiling;
+  return Math.min(requested, ceiling);
+}
+
 export class PdfExtractor implements AttachmentExtractor {
   readonly id = 'pdf';
 
@@ -248,6 +257,7 @@ export class PdfExtractor implements AttachmentExtractor {
       const chunks = [];
       const pageFailures: Array<{ page: number; name: string; message: string }> = [];
       const capturedRasters: Array<{ page: number; raster: RasterImage }> = [];
+      const visionPageLimit = resolvePdfVisionPageLimit(options);
       let chars = 0;
       let truncated = false;
       let stop = false;
@@ -275,7 +285,7 @@ export class PdfExtractor implements AttachmentExtractor {
           parts.push(block);
           chunks.push({ id: randomUUID(), text: block, page: pageNumber });
           chars += pageText.length;
-          if (options.imagesForVision && capturedRasters.length < ATTACHMENT_LIMITS.maxPdfVisionPages) {
+          if (options.imagesForVision && capturedRasters.length < visionPageLimit) {
             const raster = await collectPageRaster(page);
             if (raster) capturedRasters.push({ page: pageNumber, raster });
           }

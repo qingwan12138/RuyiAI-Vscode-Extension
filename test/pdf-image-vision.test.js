@@ -108,6 +108,38 @@ const pdfCandidate = {
   bytes: new Uint8Array(64)
 };
 
+test('pdf vision page limit honors the option (0 = whole document)', async () => {
+  function makePdfJs(pages) {
+    return { getDocument: () => ({ promise: Promise.resolve({
+      numPages: pages.length,
+      getPage: async n => pages[n - 1],
+      destroy: async () => undefined
+    }) }) };
+  }
+  function makePage(data) {
+    return {
+      async getTextContent() { return { items: [] }; },
+      async getOperatorList() { return { fnArray: [], argsArray: [['img']] }; },
+      objs: { has: () => true, get: () => data },
+      commonObjs: { has: () => false, get: () => undefined }
+    };
+  }
+  const raster = (red) => ({ width: 1, height: 1, kind: 2, data: new Uint8Array([red, 0, 0]) });
+  const twoPages = makePdfJs([makePage(raster(10)), makePage(raster(200))]);
+  const extractor = new PdfExtractor(async () => twoPages);
+  const input = {
+    name: 'all.pdf', relativePath: 'all.pdf', extension: 'pdf',
+    sizeBytes: 1, bytes: new Uint8Array(1), head: new Uint8Array(1), kind: 'pdf'
+  };
+
+  const allPages = await extractor.extract(input, { maxChars: 1000, imagesForVision: true });
+  assert.equal((allPages.images || []).length, 2, '0/absent option means the whole document');
+
+  const capped = await extractor.extract(input, { maxChars: 1000, imagesForVision: true, pdfVisionPages: 1 });
+  assert.equal((capped.images || []).length, 1);
+  assert.equal(capped.images[0].fileName, 'all-p1.png');
+});
+
 test('attachment service delivers scanned PDF pages as images when vision is available', async () => {
   const payload = { mimeType: 'image/png', dataBase64: `${PNG_MAGIC}xx`, fileName: 'scan-p1.png' };
   const { registry, seen } = registryWithPdfExtractor([payload]);

@@ -122,6 +122,8 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
         return { modelSupported: false, transportSupported: false };
       }
     }
+  }, {
+    getPdfVisionPagesLimit: () => readPdfVisionPagesLimit()
   });
   const chat = new ChatService(
     sessions,
@@ -224,6 +226,13 @@ function showEditJournal(edits?: WorkspaceEditService): void {
     return;
   }
   void new EditJournalViewer(edits).show();
+}
+
+/** yisiAI.pdfVisionMaxPages: 0 = whole document (hard ceiling lives in the
+ * extractor). A setting change takes effect on the next attach. */
+function readPdfVisionPagesLimit(): number {
+  const value = vscode.workspace.getConfiguration('yisiAI').get<number>('pdfVisionMaxPages', 0);
+  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
 }
 
 function getWorkspaceId(): string {
