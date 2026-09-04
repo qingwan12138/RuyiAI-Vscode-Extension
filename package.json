@@ -1,9 +1,9 @@
 {
   "name": "yisi-ai-dev-starter",
   "displayName": "Yisi AI Development Baseline",
+  "publisher": "yisi-ai-local",
   "description": "Closed-source TS/JS VS Code Coding Agent development baseline for RuyiSDK integration.",
   "version": "0.1.7",
-  "private": true,
   "license": "UNLICENSED",
   "engines": {
     "vscode": "^1.95.0"
@@ -30,8 +30,39 @@
       {
         "command": "yisiAI.continue",
         "title": "Yisi AI: Continue Current Session"
+      },
+      {
+        "command": "yisiAI.selection.explain",
+        "title": "Yisi AI: Explain Selection"
+      },
+      {
+        "command": "yisiAI.selection.comment",
+        "title": "Yisi AI: Add Comments to Selection"
+      },
+      {
+        "command": "yisiAI.selection.unitTests",
+        "title": "Yisi AI: Generate Unit Tests for Selection"
       }
     ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "yisiAI.selection.explain",
+          "when": "editorTextFocus && editorHasSelection",
+          "group": "yisi_ai@1"
+        },
+        {
+          "command": "yisiAI.selection.comment",
+          "when": "editorTextFocus && editorHasSelection",
+          "group": "yisi_ai@2"
+        },
+        {
+          "command": "yisiAI.selection.unitTests",
+          "when": "editorTextFocus && editorHasSelection",
+          "group": "yisi_ai@2"
+        }
+      ]
+    },
     "viewsContainers": {
       "activitybar": [
         {
@@ -46,7 +77,7 @@
         {
           "type": "webview",
           "id": "yisiAI.chat",
-          "name": " ",
+          "name": "Chat",
           "icon": "media/yisi.svg"
         }
       ]
@@ -65,6 +96,21 @@
           "default": "",
           "scope": "window",
           "description": "Global/project model fallback. Each persisted session may keep its own model selection."
+        },
+        "yisiAI.identityBypassEnabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "window",
+          "description": "Answer identity/self questions (\"what model are you\") through a bare chat request with no agent tools and no history, so agent-tuned models answer truthfully instead of role-playing another persona. Normal coding messages are unaffected."
+        },
+        "yisiAI.identityBypassKeywords": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "window",
+          "description": "Extra phrases (spacing and case ignored) that should also be treated as identity questions and answered through the bare chat path."
         }
       }
     }
@@ -79,7 +125,14 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.95.0",
+    "@vscode/vsce": "^3.9.2",
     "typescript": "^5.7.0"
   },
-  "icon": "media/ruyi-logo.png"
+  "icon": "media/ruyi-logo.png",
+  "dependencies": {
+    "jszip": "^3.10.1",
+    "mammoth": "^1.12.2",
+    "pdfjs-dist": "^4.10.38",
+    "read-excel-file": "^9.3.10"
+  }
 }

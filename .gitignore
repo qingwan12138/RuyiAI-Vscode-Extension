@@ -8,3 +8,4 @@ dist/
 !.env.example
 .vscode-test/
 coverage/
+.claude/

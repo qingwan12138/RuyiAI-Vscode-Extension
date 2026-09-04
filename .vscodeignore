@@ -1,11 +1,21 @@
 .vscode/**
+.claude/**
 docs/**
+webview/**
 .gitignore
 BLUEPRINT_CHANGELOG.md
 AGENTS.md
 UPSTREAM_COMPATIBILITY.md
+Yisi_AI_模型控制器_DeepSeek修改提示词.md
 src/**
 tsconfig.json
 **/*.map
 **/*.ts
-node_modules/.cache/**
+test/**
+package-lock.json
+*.vsix
+
+# Keep runtime dependencies for the attachment parsers (pdfjs-dist, mammoth,
+# xlsx, jszip). vsce bundles `dependencies` and skips `devDependencies` by
+# default; do NOT blanket-exclude node_modules or the published .vsix will be
+# missing them and file attachment will fail at runtime.
