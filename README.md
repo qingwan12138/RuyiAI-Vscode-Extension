@@ -89,7 +89,7 @@ Remote-SSH 不作为当前 v1.0 必须交付能力，后续需要时再单独增
 
 ## 当前阶段
 
-本包已完成 v0.1 Foundation / Chat Vertical Slice 的代码基线，并进入 v0.2 Coding Agent MVP，但不声称已完成 Coding Agent。现已具备 Session/模型/权限持久化、Provider 设置、安全凭据、SSE 流式聊天、Stop、受工作区边界保护的 Read/List/Search、唯一文本替换和排他式文本文件创建工具、类型化 Permission Engine、显式 `@file` 内容附加，以及结构化 ProcessRunner/ValidationEngine。ProcessRunner 使用精确 argv、独立输出限量、超时/取消和 Linux 进程组终止；VS Code Diagnostics 已有工作区限定的快照适配器和验证证据。新建 Provider 时可显式启用 OpenAI-compatible 结构化 Agent tools；在单一本地工作区内，当前 Composer 可读取并搜索文件，也可用读取结果的 SHA-256 做 stale guard 后替换一个唯一文本片段，或在已有目录内创建不覆盖任何现有路径的新 UTF-8 文件。写入结果会附带有界的即时 VS Code diagnostics 快照，但该快照不等于语言服务已完成刷新或构建测试通过。Plan 拒绝写入，Manual 使用 VS Code 原生确认，Accept Edits/Auto 按权限策略允许这些有界写入。旧 Provider 安全迁移为纯聊天，零/多工作区或非本地工作区不会启用工具。删除/重命名、目录创建、命令执行和完成级自动验证闭环仍待继续实现。
+本包已完成 v0.1 Foundation / Chat Vertical Slice 的代码基线，并进入 v0.2 Coding Agent MVP，但不声称已完成 Coding Agent。现已具备 Session/模型/权限持久化、Provider 设置、安全凭据、SSE 流式聊天、Stop、受工作区边界保护的 Read/List/Search、唯一文本替换和排他式文本文件创建工具、受权限门管控的结构化命令执行工具（`run_command`：build/test/lint，Plan 拒绝、其余模式确认、Full Access 放行，特权与系统/包管理器命令硬拒）、类型化 Permission Engine、显式 `@file` 内容附加，以及结构化 ProcessRunner/ValidationEngine。ProcessRunner 使用精确 argv、独立输出限量、超时/取消和 Linux 进程组终止；VS Code Diagnostics 已有工作区限定的快照适配器和验证证据。编辑器右键/命令面板提供三个选区任务（解释选中代码、生成注释、生成单元测试），复用会话与 Agent 链路并随会话持久化。新建 Provider 时可显式启用 OpenAI-compatible 结构化 Agent tools；在单一本地工作区内，当前 Composer 可读取并搜索文件，也可用读取结果的 SHA-256 做 stale guard 后替换一个唯一文本片段，或在已有目录内创建不覆盖任何现有路径的新 UTF-8 文件，并可请求运行构建/测试命令获取结构化输出。写入结果会附带有界的即时 VS Code diagnostics 快照，但该快照不等于语言服务已完成刷新或构建测试通过。Plan 拒绝写入与命令执行，Manual 使用 VS Code 原生确认，Accept Edits/Auto 按权限策略允许这些有界动作。旧 Provider 安全迁移为纯聊天，零/多工作区或非本地工作区不会启用工具。删除/重命名、目录创建与完成级自动验证闭环（ValidationPlanner 自动跑 build/test 并迭代修复）仍待继续实现。
 
 ## 配置并运行聊天
 
