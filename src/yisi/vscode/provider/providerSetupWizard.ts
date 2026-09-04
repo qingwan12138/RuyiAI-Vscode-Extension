@@ -13,6 +13,10 @@ import {
   createProviderConfiguration,
   providerKindRequiresCredential
 } from '../../domain/providerConfiguration';
+import {
+  LocalDevicePreset,
+  LOCAL_DEVICE_PRESETS
+} from './localDevicePresets';
 
 const DISCOVERY_TIMEOUT_MS = 15_000;
 
@@ -153,10 +157,19 @@ export class ProviderSetupWizard {
     const profile = await this.pickProviderProfile();
     if (!profile) return undefined;
 
+    // Local-device presets (如意香山南湖 / 如意 AIPC / 本机 llama.cpp) pre-fill
+    // the llamaCpp add flow; choosing one still keeps every safety step below.
+    let preset: LocalDevicePreset | undefined;
+    if (profile.kind === 'llamaCpp') {
+      const presetChoice = await this.pickLocalDevicePreset();
+      if (presetChoice === undefined) return undefined; // cancelled
+      preset = presetChoice === 'skip' ? undefined : presetChoice;
+    }
+
     const name = await vscode.window.showInputBox({
       title: 'Yisi AI · Add Provider',
       prompt: 'Provider name (display only)',
-      value: profile.defaultName,
+      value: preset ? preset.label : profile.defaultName,
       validateInput: required
     });
     if (name === undefined) return undefined;
@@ -164,7 +177,7 @@ export class ProviderSetupWizard {
     const baseUrl = await vscode.window.showInputBox({
       title: 'Yisi AI · Add Provider',
       prompt: 'API Base URL',
-      value: profile.defaultBaseUrl,
+      value: preset?.baseUrl ?? profile.defaultBaseUrl,
       validateInput: required
     });
     if (baseUrl === undefined) return undefined;
@@ -191,8 +204,16 @@ export class ProviderSetupWizard {
       name,
       baseUrl,
       credential,
-      models: [...(profile.defaultModels ?? [])],
-      capabilities: profile.capabilities
+      models: [...(preset?.suggestedModels ?? profile.defaultModels ?? [])],
+      capabilities: {
+        ...profile.capabilities,
+        ...(preset ? {
+          toolCalling: preset.capabilities.toolCalling,
+          temperature: preset.capabilities.temperature,
+          maxTokens: preset.capabilities.maxTokens,
+          speedMode: preset.capabilities.speedMode
+        } : {})
+      }
     };
 
     const discovered = await this.testAndDiscover(draft, resolvedKey, profile.defaultName);
@@ -263,6 +284,25 @@ export class ProviderSetupWizard {
       { title: 'Yisi AI · Add Provider', placeHolder: 'Choose the provider type' }
     );
     return picked?.profile;
+  }
+
+  private async pickLocalDevicePreset(): Promise<LocalDevicePreset | 'skip' | undefined> {
+    const items: Array<vscode.QuickPickItem & { preset?: LocalDevicePreset; skip?: boolean }> = [
+      ...LOCAL_DEVICE_PRESETS.map(preset => ({
+        label: preset.label,
+        description: preset.detail,
+        preset
+      })),
+      { label: '', kind: vscode.QuickPickItemKind.Separator },
+      { label: '手动配置（跳过预设）', description: '回到常规 llama.cpp 流程', skip: true }
+    ];
+    const picked = await vscode.window.showQuickPick(items, {
+      title: 'Yisi AI · Add llama.cpp Provider',
+      placeHolder: '选择本地推理设备预设（IP 需按你的设备修改）'
+    });
+    if (!picked) return undefined;
+    if (picked.skip) return 'skip';
+    return picked.preset;
   }
 
   private async pickCredential(kind: ProviderKind): Promise<CredentialSource | undefined> {

@@ -94,7 +94,7 @@ Remote-SSH 不作为当前 v1.0 必须交付能力，后续需要时再单独增
 ## 配置并运行聊天
 
 1. 在 Yisi AI Composer 底部点击 `Model`。
-2. 首次使用选择 `Add Provider`，可配置官方 OpenAI 或自定义 OpenAI-compatible 地址。
+2. 首次使用选择 `Add Provider`，可配置官方 OpenAI 或自定义 OpenAI-compatible 地址；`llama.cpp` 类型会先询问本地推理设备预设（本机 llama.cpp server / 如意香山南湖笔记本 / 如意 AIPC），预填 Base URL、建议模型与能力开关，之后仍可编辑 IP 并走连接测试与模型发现。
 3. API Key 可存入 VS Code SecretStorage，或只填写环境变量名；可信的本地兼容端点可选择无凭据。
 4. 明确选择 Provider 是否支持 OpenAI-compatible tool calling；不确定时选择 `Text chat only`。
 5. 选择模型和 Session 权限模式后发送消息；生成期间发送按钮变为 Stop。启用 tools 且只有一个本地工作区时，模型可请求 Read/List/Search；非 Plan 模式还可按权限策略请求一次唯一文本替换。
