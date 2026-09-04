@@ -867,6 +867,7 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     <header class="topbar">
       <div class="session-title" id="sessionTitle">New Chat</div>
       <div class="top-actions">
+        <button class="icon-button" id="homeButton" type="button" title="Back to main screen" aria-label="Back to main screen">⌂</button>
         <button class="icon-button" id="historyButton" type="button" title="Session history" aria-label="Session history">◷</button>
         <button class="icon-button" id="newChat" type="button" title="New session" aria-label="New session">＋</button>
       </div>
@@ -958,6 +959,10 @@ ${permissionClientScript()}
     // to confirm deletion. Never written back into the Session domain.
     let editingSessionId = null;
     let confirmDeleteSessionId = null;
+    // 'welcome' (main screen) or 'conversation'. Starts at 'welcome' so the
+    // extension always opens on the main screen, never dropping straight into
+    // the previous conversation. A home/back action returns here.
+    let viewMode = 'welcome';
 
     function updateSendState() {
       sendButton.disabled = !isRunning && input.value.trim().length === 0;
@@ -972,11 +977,22 @@ ${permissionClientScript()}
       input.style.height = Math.min(input.scrollHeight, 180) + 'px';
     }
 
+    function renderView() {
+      const showConversation = viewMode === 'conversation' && !!activeSession && activeSession.items.length > 0;
+      welcome.style.display = showConversation ? 'none' : '';
+      conversation.classList.toggle('visible', showConversation);
+    }
+
     function showHistory(visible) {
       historyPanel.hidden = !visible;
-      welcome.style.display = visible || (activeSession && activeSession.items.length > 0) ? 'none' : '';
-      conversation.classList.toggle('visible', !visible && !!activeSession && activeSession.items.length > 0);
-      if (visible) renderHistory();
+      if (visible) {
+        // History overlays the main content; keep the welcome/conversation hidden.
+        welcome.style.display = 'none';
+        conversation.classList.remove('visible');
+        renderHistory();
+        return;
+      }
+      renderView();
     }
 
     function renderHistory() {
@@ -1010,6 +1026,7 @@ ${permissionClientScript()}
       meta.textContent = new Date(summary.updatedAt).toLocaleString();
       select.append(title, meta);
       select.addEventListener('click', () => {
+        viewMode = 'conversation';
         vscode.postMessage({ type: 'switchSession', sessionId: summary.id });
         status.textContent = 'Switching session…';
       });
@@ -1211,6 +1228,7 @@ ${permissionClientScript()}
       });
 
       showHistory(false);
+      renderView();
       const content = document.getElementById('content');
       content.scrollTop = content.scrollHeight;
     }
@@ -1347,6 +1365,7 @@ ${permissionClientScript()}
       const text = input.value.trim();
       if (!text) return;
 
+      viewMode = 'conversation';
       appendMessage(text, 'user', false);
       vscode.postMessage({ type: 'sendMessage', text });
 
@@ -1378,6 +1397,12 @@ ${permissionClientScript()}
       showHistory(historyPanel.hidden);
     });
 
+    document.getElementById('homeButton').addEventListener('click', () => {
+      viewMode = 'welcome';
+      showHistory(false);
+      input.focus();
+    });
+
     document.getElementById('closeHistory').addEventListener('click', () => showHistory(false));
 
     document.addEventListener('keydown', event => {
@@ -1392,6 +1417,7 @@ ${permissionClientScript()}
 
     document.querySelectorAll('.quick-action').forEach(button => {
       button.addEventListener('click', () => {
+        viewMode = 'conversation';
         input.value = button.dataset.prompt || '';
         resizeInput();
         updateSendState();
