@@ -169,7 +169,6 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
     vscode.commands.registerCommand('yisiAI.generateApiDocs', () => chatView.runProjectDocTask('apiDocs')),
     vscode.commands.registerCommand('yisiAI.showEditJournal', () => showEditJournal(agentWorkspace.edits)),
     vscode.commands.registerCommand('yisiAI.focus', () => revealYisiChat()),
-    vscode.commands.registerCommand('yisiAI.openChat', () => revealYisiChat()),
     yisiStatus
   );
 }
