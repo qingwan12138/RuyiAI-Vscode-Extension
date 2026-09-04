@@ -14,6 +14,10 @@ import {
   EditorSelectionTaskKind,
   buildSelectionTaskMessage
 } from '../application/chat/editorSelectionTask';
+import {
+  ProjectDocTaskKind,
+  buildProjectDocTaskMessage
+} from '../application/chat/projectDocTask';
 import { collectActiveEditorSelection } from '../vscode/selection/editorSelectionTaskAdapter';
 
 export type { EditorSelectionTaskKind } from '../application/chat/editorSelectionTask';
@@ -138,6 +142,50 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
       }
     }
     await this.runs.start(buildSelectionTaskMessage(kind, context, projectSummary));
+    await this.publishState();
+  }
+
+  /**
+   * Entry point for the project-scope documentation commands (README / API
+   * docs). Requires an idle session with a configured model; runs the same
+   * chat/agent pipeline as the composer with project detection context so the
+   * model can target the real build/test setup. Persists into the active
+   * session like any other turn.
+   */
+  async runProjectDocTask(kind: ProjectDocTaskKind): Promise<void> {
+    if (this.runs.isRunning()) {
+      await vscode.window.showInformationMessage(
+        'Yisi AI: 请先停止当前运行，再发起新的项目任务。'
+      );
+      return;
+    }
+    const active = this.sessions.getActiveSession();
+    if (!active.model.providerId || !active.model.modelId) {
+      const action = await vscode.window.showInformationMessage(
+        'Yisi AI: 当前会话尚未选择模型，无法运行项目任务。',
+        '打开模型设置',
+        '取消'
+      );
+      if (action === '打开模型设置') {
+        await this.openModelSettings();
+      }
+      return;
+    }
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    const projectName = vscode.workspace.name
+      ?? (folders.length > 0 ? folders[0].name : undefined)
+      ?? 'workspace';
+    const fileName = folders.length > 0 ? folders[0].uri.fsPath : 'no-workspace-folder';
+    let projectSummary: string | undefined;
+    if (this.projectProfile) {
+      try {
+        projectSummary = await this.projectProfile.inspect();
+      } catch {
+        projectSummary = undefined;
+      }
+    }
+    void vscode.commands.executeCommand('yisiAI.chat.focus');
+    await this.runs.start(buildProjectDocTaskMessage(kind, { projectName, fileName }, projectSummary));
     await this.publishState();
   }
 
