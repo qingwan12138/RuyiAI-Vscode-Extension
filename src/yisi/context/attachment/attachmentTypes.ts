@@ -49,6 +49,8 @@ export interface AttachmentExtractOptions {
   /** Hard ceiling on extracted text characters; extractors truncate, never exceed. */
   maxChars: number;
   signal?: AbortSignal;
+  /** PDF: also collect page images (scanned/image-only pages) for vision models. */
+  imagesForVision?: boolean;
 }
 
 export interface AttachmentChunk {
@@ -68,6 +70,8 @@ export type AttachmentImageMimeType = 'image/png' | 'image/jpeg' | 'image/webp' 
 export interface AttachmentImagePayload {
   mimeType: AttachmentImageMimeType;
   dataBase64: string;
+  /** Optional per-image display name (e.g. "report-p2.png"). */
+  fileName?: string;
 }
 
 export interface AttachmentImageMeta {
@@ -95,6 +99,8 @@ export interface AttachmentExtractionResult {
   warnings: string[];
   /** In-memory image payload for multimodal transports; never persisted in Session JSON. */
   image?: AttachmentImagePayload;
+  /** Multiple in-memory images (e.g. scanned PDF pages) for vision models. */
+  images?: AttachmentImagePayload[];
 }
 
 /**
@@ -113,6 +119,8 @@ export interface AttachmentContext {
   warnings: string[];
   /** In-memory only. Session history persists the file reference, not this base64 payload. */
   image?: AttachmentImagePayload;
+  /** Multiple in-memory images (scanned PDF pages) for vision models. */
+  images?: AttachmentImagePayload[];
 }
 
 // Central budget / guardrail configuration for the attachment pipeline.
@@ -135,7 +143,13 @@ export const ATTACHMENT_LIMITS = Object.freeze({
   /** Notebook: at most this many cells. */
   maxNotebookCells: 300,
   /** Composer keeps at most this many pending attachments per session. */
-  maxAttachmentsPerSession: 6
+  maxAttachmentsPerSession: 6,
+  /** PDF-for-vision: at most this many pages become images. */
+  maxPdfVisionPages: 4,
+  /** PDF-for-vision: per-page pixel ceiling (area) after downscaling. */
+  maxPdfVisionPixels: 1_600_000,
+  /** PDF-for-vision: per-page encoded PNG byte ceiling. */
+  maxPdfVisionImageBytes: 6 * 1024 * 1024
 } as const);
 
 /** Per-kind raw byte ceilings. Bulky binary containers (Office/PDF) get more

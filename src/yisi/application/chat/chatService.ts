@@ -2,7 +2,7 @@ import { SessionService } from '../session/sessionService';
 import { ProviderCatalog } from '../provider/providerCatalog';
 import { AgentConversationMessage, ChatMessage, LLMProvider, MessageContent, RequestSampling } from '../../llm/types';
 import { ConversationItem, FileContextReference, PermissionMode, parseContextReferences } from '../../domain/session';
-import { AttachmentContext } from '../../context/attachment/attachmentTypes';
+import { AttachmentContext, AttachmentImagePayload } from '../../context/attachment/attachmentTypes';
 import { AttachmentRehydrator } from '../attachment/attachmentService';
 import { IdentityQuestionPolicy, isIdentityQuestion } from './identityQuestion';
 import { assembleAttachmentContexts, computeAttachmentBudget } from './attachmentPrompt';
@@ -157,24 +157,33 @@ function withExplicitContext(text: string, attachments: AttachmentContext[], bud
   if (attachments.length === 0) return text;
 
   const textual = attachments.filter(attachment => attachment.chunks.length > 0);
-  const images = attachments.filter(attachment => attachment.image !== undefined);
+  const imageParts: Array<{ payload: AttachmentImagePayload; contextName: string }> = [];
+  for (const attachment of attachments) {
+    for (const image of attachmentImages(attachment)) {
+      imageParts.push({ payload: image, contextName: attachment.fileName });
+    }
+  }
   const block = assembleAttachmentContexts(textual, budgetTokens);
   const textContent = block ? `${text}\n\nAttached context:\n${block}` : text;
-  if (images.length === 0) return textContent;
+  if (imageParts.length === 0) return textContent;
 
   const parts: Exclude<MessageContent, string> = [{ type: 'text', text: textContent }];
-  for (const attachment of images) {
-    const image = attachment.image;
-    if (!image) continue;
-    parts.push({ type: 'text', text: `[Attached image: ${attachment.fileName}]` });
+  for (const image of imageParts) {
+    const displayName = image.payload.fileName ?? image.contextName;
+    parts.push({ type: 'text', text: `[Attached image: ${displayName}]` });
     parts.push({
       type: 'image',
-      mimeType: image.mimeType,
-      dataBase64: image.dataBase64,
-      fileName: attachment.fileName
+      mimeType: image.payload.mimeType,
+      dataBase64: image.payload.dataBase64,
+      fileName: displayName
     });
   }
   return parts;
+}
+
+function attachmentImages(attachment: AttachmentContext): AttachmentImagePayload[] {
+  if (attachment.images && attachment.images.length > 0) return attachment.images;
+  return attachment.image ? [attachment.image] : [];
 }
 
 function historyMessages(

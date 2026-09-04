@@ -16,6 +16,7 @@ import {
   AttachmentExtractionResult,
   AttachmentExtractOptions,
   AttachmentFileInput,
+  AttachmentImagePayload,
   AttachmentKind,
   AttachmentStatus,
   ATTACHMENT_LIMITS,
@@ -181,6 +182,7 @@ export class AttachmentService {
       }
     }
 
+    const capability = await this.visionCapability();
     const input: AttachmentFileInput = {
       name: candidate.name,
       relativePath: candidate.relativePath,
@@ -195,7 +197,12 @@ export class AttachmentService {
     }
 
     const options: AttachmentExtractOptions = {
-      maxChars: ATTACHMENT_LIMITS.maxExtractedChars
+      maxChars: ATTACHMENT_LIMITS.maxExtractedChars,
+      // Scanned/image-only PDFs become page images only when the whole vision
+      // chain (model + provider transport) can carry them.
+      imagesForVision: guess.kind === 'pdf'
+        && capability.modelSupported
+        && capability.transportSupported
     };
 
     let result: AttachmentExtractionResult;
@@ -208,9 +215,31 @@ export class AttachmentService {
       return { view: baseView(guess.kind, 'error', `Failed to attach: ${message}`) };
     }
 
-    const warnings = result.warnings ?? [];
+    const rawImages = collectResultImages(result);
+    const isPdfPages = guess.kind === 'pdf';
+    const capableForVision = capability.modelSupported && capability.transportSupported;
+    // Never trust an extractor to return images when the session cannot carry
+    // them: for PDF page images the vision gate is decided here. Regular image
+    // attachments were already gated earlier, so they pass straight through.
+    const deliveredImages = isPdfPages && !capableForVision ? [] : rawImages;
+    let warnings = [...(result.warnings ?? [])];
+    if (isPdfPages && deliveredImages.length > 0) {
+      // Page images carry the content for vision models; the "scanned/OCR"
+      // text warnings would be misleading once images are actually attached.
+      warnings = warnings.filter(warning =>
+        !/little or no extractable text|Scanned PDF OCR is not supported/i.test(warning)
+      );
+      if (result.text.trim().length === 0) {
+        warnings.push('Scanned PDF pages attached as images for the vision model.');
+      }
+    } else if (isPdfPages && rawImages.length > 0) {
+      // Image pages exist but the model/transport cannot consume them.
+      warnings.push('This PDF has image-only pages, but the current model or provider cannot receive image input. Switch to a vision-capable model to read them.');
+    }
+
     const status: AttachmentStatus = warnings.length > 0 ? 'warning' : 'ready';
     const view = baseView(result.kind, status, warnings[0]);
+    const contextImages = deliveredImages;
     return {
       view,
       context: {
@@ -223,7 +252,9 @@ export class AttachmentService {
           metadata: result.metadata,
           truncated: result.truncated ?? false,
           warnings,
-          image: result.image
+          ...(contextImages.length > 0
+            ? { image: contextImages[0], images: contextImages }
+            : {})
         }
       }
     };
@@ -256,6 +287,11 @@ function lowerExtension(candidate: AttachmentCandidate): string | undefined {
   const dot = base.lastIndexOf('.');
   if (dot <= 0 || dot === base.length - 1) return undefined;
   return base.slice(dot + 1).toLowerCase();
+}
+
+function collectResultImages(result: AttachmentExtractionResult): AttachmentImagePayload[] {
+  if (result.images && result.images.length > 0) return result.images;
+  return result.image ? [result.image] : [];
 }
 
 function kindLabel(kind: AttachmentKind): string {
