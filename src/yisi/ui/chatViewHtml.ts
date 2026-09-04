@@ -145,9 +145,20 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     .content {
       min-height: 0;
       min-width: 0;
-      overflow: auto;
+      overflow-x: hidden;
+      overflow-y: auto;
+      scrollbar-gutter: stable;
       display: flex;
       flex-direction: column;
+    }
+
+    .content::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .content::-webkit-scrollbar-thumb {
+      background: var(--vscode-scrollbarSlider-background, rgba(121,121,121,.4));
+      border-radius: 4px;
     }
 
     .welcome {
@@ -295,6 +306,7 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     .conversation {
       display: none;
       min-width: 0;
+      max-width: 100%;
       padding: 12px 12px 20px;
     }
 
