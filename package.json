@@ -58,9 +58,18 @@
       {
         "command": "yisiAI.focus",
         "title": "Yisi AI: Open Chat",
-        "icon": "$(sparkle)"
+        "icon": "$(yisi-ai)"
       }
     ],
+    "icons": {
+      "yisi-ai": {
+        "description": "Yisi AI",
+        "default": {
+          "fontPath": "./media/iconfont/yisi-icons.woff2",
+          "fontCharacter": "\\ea01"
+        }
+      }
+    },
     "menus": {
       "editor/title": [
         {
@@ -179,6 +188,7 @@
     "@types/vscode": "^1.95.0",
     "@vscode/vsce": "^3.9.2",
     "fantasticon": "^4.1.0",
+    "svgtofont": "^6.5.3",
     "typescript": "^5.7.0"
   },
   "icon": "media/ruyi-logo.png",
