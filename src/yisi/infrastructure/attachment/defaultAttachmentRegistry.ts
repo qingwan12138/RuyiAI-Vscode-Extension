@@ -31,10 +31,24 @@ function cached<T>(id: string): () => T {
 // extension host ("The PDF parser could not initialize correctly..."). We pin
 // the 3.x legacy UMD build instead: it is CommonJS (`require`) loadable, works
 // in the extension host, and its text-layer API is identical for our use.
+// pdf.js also needs an explicit worker path in the host — without it it throws
+// "No 'GlobalWorkerOptions.workerSrc' specified." — so we point it at the
+// legacy CJS worker before first use.
 function cachedPdfJs(): () => Promise<PdfJsModule> {
   let modulePromise: Promise<PdfJsModule> | undefined;
   return () => {
-    modulePromise ??= Promise.resolve().then(() => require('pdfjs-dist/legacy/build/pdf.js') as PdfJsModule);
+    modulePromise ??= Promise.resolve().then(() => {
+      const pdfjs = require('pdfjs-dist/legacy/build/pdf.js') as PdfJsModule &
+        { GlobalWorkerOptions?: { workerSrc?: string } };
+      try {
+        if (pdfjs.GlobalWorkerOptions) {
+          pdfjs.GlobalWorkerOptions.workerSrc = require.resolve('pdfjs-dist/legacy/build/pdf.worker.js');
+        }
+      } catch {
+        // Worker path resolution is best-effort; pdf.js falls back to auto.
+      }
+      return pdfjs;
+    });
     return modulePromise;
   };
 }
