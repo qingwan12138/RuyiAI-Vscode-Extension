@@ -40,6 +40,8 @@ import { ProjectProfileService, createInspectProjectTool } from './application/c
 import { ValidationPlannerService, createRunValidationsTool } from './application/validation/validationPlannerService';
 import { RuyiInspectionService, createRuyiInspectTool } from './application/ruyi/ruyiInspectionService';
 import { RuyiCliAdapter } from './ruyi/ruyiCliAdapter';
+import { SymbolLookupService, createListSymbolsTool } from './application/context/symbolLookupService';
+import { VsCodeDocumentSymbolProvider } from './vscode/symbols/vsCodeSymbolProvider';
 import { NodeProcessRunner } from './infrastructure/process/nodeProcessRunner';
 import { VsCodeToolConfirmation } from './vscode/agent/vsCodeToolConfirmation';
 import { VsCodeDiagnosticProvider } from './vscode/diagnostics/vsCodeDiagnosticProvider';
@@ -176,6 +178,7 @@ async function createAgentWorkspace(): Promise<AgentWorkspaceServices> {
     const profileService = new ProjectProfileService(fileSystem);
     const validationPlanner = new ValidationPlannerService(commands, profileService);
     const ruyiInspection = new RuyiInspectionService(commands, new RuyiCliAdapter());
+    const symbols = new SymbolLookupService(workspace.fsPath, new VsCodeDocumentSymbolProvider());
     const tools = [
       ...createWorkspaceContextTools(new WorkspaceContextService(fileSystem)),
       createWorkspaceEditTool(edits),
@@ -188,7 +191,8 @@ async function createAgentWorkspace(): Promise<AgentWorkspaceServices> {
       createRunCommandTool(commands),
       createInspectProjectTool(profileService),
       createRunValidationsTool(validationPlanner),
-      createRuyiInspectTool(ruyiInspection)
+      createRuyiInspectTool(ruyiInspection),
+      createListSymbolsTool(symbols)
     ];
     const runner = new AgentChatRunner(
       new ToolRegistry(tools),
