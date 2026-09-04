@@ -72,7 +72,10 @@ function pdfOpenErrorMessage(error: unknown): string {
     return 'This PDF data could not be found.';
   }
   if (lower.includes('worker') || lower.includes('dommatrix') || lower.includes('canvas')) {
-    return 'The PDF parser could not initialize correctly in the VS Code extension host.';
+    const detail = safeDiagnostic(message);
+    return detail
+      ? `The PDF parser could not initialize correctly in the VS Code extension host (${detail}).`
+      : 'The PDF parser could not initialize correctly in the VS Code extension host.';
   }
   if (name === 'UnknownErrorException' && message.trim()) {
     return `Failed to parse this PDF (${safeDiagnostic(message)}).`;

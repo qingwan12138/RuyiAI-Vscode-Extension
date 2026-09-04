@@ -27,17 +27,20 @@ function cached<T>(id: string): () => T {
 }
 
 // pdfjs-dist 4.x is ESM-only and cannot be `require`d from a CommonJS build, so
-// it is lazily `import`ed on first use.
-function cachedImport<T>(id: string): () => Promise<T> {
-  let value: Promise<T> | undefined;
+// its dynamic `import()` + fake-worker bootstrap fails inside the Electron
+// extension host ("The PDF parser could not initialize correctly..."). We pin
+// the 3.x legacy UMD build instead: it is CommonJS (`require`) loadable, works
+// in the extension host, and its text-layer API is identical for our use.
+function cachedPdfJs(): () => Promise<PdfJsModule> {
+  let modulePromise: Promise<PdfJsModule> | undefined;
   return () => {
-    value ??= import(id) as Promise<T>;
-    return value;
+    modulePromise ??= Promise.resolve().then(() => require('pdfjs-dist/legacy/build/pdf.js') as PdfJsModule);
+    return modulePromise;
   };
 }
 
 export function createDefaultAttachmentRegistry(): AttachmentExtractorRegistry {
-  const pdfjs = cachedImport<PdfJsModule>('pdfjs-dist/legacy/build/pdf.mjs');
+  const pdfjs = cachedPdfJs();
   const mammoth = cached<MammothModule>('mammoth');
   const readXlsxFile = cached<ReadXlsxFile>('read-excel-file/node');
   const jszip = cached<ZipLoader>('jszip');
