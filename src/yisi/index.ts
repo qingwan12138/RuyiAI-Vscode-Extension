@@ -43,8 +43,8 @@ import { RuyiCliAdapter } from './ruyi/ruyiCliAdapter';
 import { SymbolLookupService, createListSymbolsTool } from './application/context/symbolLookupService';
 import { VsCodeDocumentSymbolProvider } from './vscode/symbols/vsCodeSymbolProvider';
 import { EditJournalViewer } from './vscode/editJournalViewer';
-import { ContextUsageState, computeContextUsage } from './application/context/contextUsage';
-import { modelContextWindow } from './domain/modelContextWindow';
+import { ContextUsageState, computeContextUsage, estimateTokens, CONTEXT_OVERHEAD_TOKENS } from './application/context/contextUsage';
+import { ModelWindowOverride, modelContextWindow } from './domain/modelContextWindow';
 import { NodeProcessRunner } from './infrastructure/process/nodeProcessRunner';
 import { VsCodeToolConfirmation } from './vscode/agent/vsCodeToolConfirmation';
 import { VsCodeDiagnosticProvider } from './vscode/diagnostics/vsCodeDiagnosticProvider';
@@ -238,6 +238,23 @@ function readPdfVisionPagesLimit(): number {
   return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
 }
 
+/** User overrides for per-model context windows (any model, substring match). */
+function readModelWindowOverrides(): ModelWindowOverride[] {
+  const configured = vscode.workspace.getConfiguration('yisiAI').get<unknown>('modelContextWindows', []);
+  if (!Array.isArray(configured)) return [];
+  const overrides: ModelWindowOverride[] = [];
+  for (const entry of configured) {
+    if (!entry || typeof entry !== 'object') continue;
+    const record = entry as Record<string, unknown>;
+    const model = typeof record.model === 'string' ? record.model : undefined;
+    const windowTokens = typeof record.windowTokens === 'number' ? record.windowTokens : undefined;
+    if (model && windowTokens && windowTokens > 0) {
+      overrides.push({ model, windowTokens });
+    }
+  }
+  return overrides;
+}
+
 /** Estimated context usage for the active session (as a % of the model window). */
 async function readContextUsage(
   sessions: SessionService,
@@ -253,9 +270,10 @@ async function readContextUsage(
     // A configured contextLength always wins; otherwise fall back to the known
     // family table so the ring shows a real percentage instead of "–".
     const windowTokens = capabilities.maxContextTokens
-      ?? modelContextWindow(config?.kind ?? 'openaiCompatible', session.model.modelId, config?.capabilities.contextLength);
-    const chars = session.items.reduce((total, item) => total + (item.text?.length ?? 0), 0);
-    return computeContextUsage(chars, windowTokens);
+      ?? modelContextWindow(config?.kind ?? 'openaiCompatible', session.model.modelId, config?.capabilities.contextLength, readModelWindowOverrides());
+    const tokens = session.items.reduce((total, item) => total + estimateTokens(item.text ?? ''), 0)
+      + CONTEXT_OVERHEAD_TOKENS;
+    return computeContextUsage(tokens, windowTokens);
   } catch {
     return null;
   }

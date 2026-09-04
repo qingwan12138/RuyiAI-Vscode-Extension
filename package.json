@@ -129,6 +129,20 @@
           "default": 0,
           "scope": "window",
           "description": "How many scanned/image PDF pages are attached as images for vision-capable models. 0 = the whole document (a 250-page safety ceiling still applies). Higher values cost more tokens per attachment."
+        },
+        "yisiAI.modelContextWindows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "model": { "type": "string", "description": "Substring of the model id (case-insensitive)." },
+              "windowTokens": { "type": "number", "description": "Context window in tokens." }
+            },
+            "required": ["model", "windowTokens"]
+          },
+          "default": [],
+          "scope": "window",
+          "description": "Per-model context-window overrides for the UI gauge. Applied to ANY model (any provider), so you can add models the built-in table does not know. Matched by substring on the model id; an entry with a windowTokens of 0 is ignored."
         }
       }
     }
