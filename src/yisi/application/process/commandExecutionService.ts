@@ -16,6 +16,7 @@
 import * as path from 'node:path';
 import { ProcessResult, ProcessRunner } from '../../domain/process';
 import { YisiTool } from '../../domain/tool';
+import { OutputSummary, summarizeOutput } from './outputSummary';
 
 const MAX_EXECUTABLE_CHARACTERS = 128;
 const MAX_ARGUMENT_CHARACTERS = 4_096;
@@ -40,6 +41,10 @@ export interface CommandRunResult {
   stdoutTruncated: boolean;
   stderrText: string;
   stderrTruncated: boolean;
+  /** Context-budget-friendly summary of stdout (head + tail when large). */
+  stdoutSummary: OutputSummary;
+  /** Context-budget-friendly summary of stderr (head + tail when large). */
+  stderrSummary: OutputSummary;
   errorMessage?: string;
 }
 
@@ -87,6 +92,8 @@ export class CommandExecutionService {
       stdoutTruncated: result.stdout.truncated,
       stderrText: result.stderr.text,
       stderrTruncated: result.stderr.truncated,
+      stdoutSummary: summarizeOutput(result.stdout.text),
+      stderrSummary: summarizeOutput(result.stderr.text),
       ...(result.errorMessage !== undefined ? { errorMessage: result.errorMessage } : {})
     };
   }
