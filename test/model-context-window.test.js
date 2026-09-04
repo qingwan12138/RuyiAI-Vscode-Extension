@@ -8,7 +8,7 @@ test('returns known family window sizes by prefix', () => {
   assert.equal(modelContextWindow('openai', 'gpt-4.1-mini'), 1_000_000);
   assert.equal(modelContextWindow('openai', 'o1-preview'), 200_000);
   assert.equal(modelContextWindow('anthropic', 'claude-sonnet-4-5'), 200_000);
-  assert.equal(modelContextWindow('deepseek', 'deepseek-v4-flash-vision-exp'), 128_000);
+  assert.equal(modelContextWindow('deepseek', 'deepseek-v4-flash-vision-exp'), 1_000_000);
   assert.equal(modelContextWindow('deepseek', 'deepseek-chat'), 64_000);
 });
 

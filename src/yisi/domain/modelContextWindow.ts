@@ -27,10 +27,12 @@ const KNOWN_WINDOWS: Readonly<Record<string, number>> = {
   'claude-sonnet': 200_000,
   'claude-opus': 200_000,
   'claude-haiku': 200_000,
-  // DeepSeek chat/reasoner 64k; newer variants assumed 128k.
+  // DeepSeek chat/reasoner 64k; V4 family is million-token context per public
+  // releases ("Million-Token Context"), so V4-prefixed ids get 1M. If your
+  // deployment differs, set the provider contextLength explicitly.
   'deepseek-chat': 64_000,
   'deepseek-reasoner': 64_000,
-  'deepseek-v4': 128_000,
+  'deepseek-v4': 1_000_000,
   'deepseek-r1': 64_000,
   // Qwen (local / compatible) families.
   'qwen2.5': 128_000,
@@ -58,7 +60,7 @@ export function modelContextWindow(
     case 'anthropic':
       return /^claude-(3|sonnet|opus|haiku)/.test(id) ? 200_000 : undefined;
     case 'deepseek':
-      return 64_000;
+      return /^deepseek-v4/.test(id) ? 1_000_000 : 64_000;
     case 'openaiCompatible':
     case 'llamaCpp':
       return undefined;
