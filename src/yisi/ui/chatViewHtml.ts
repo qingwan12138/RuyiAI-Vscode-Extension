@@ -11,6 +11,7 @@ import {
   permissionPopoverMarkup,
   permissionStyles
 } from './permissionHtml';
+import { MARKDOWN_RENDERER_SOURCE } from './webviewMarkdown';
 
 export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
     const nonce = createNonce();
@@ -1135,95 +1136,7 @@ ${permissionClientScript()}
       }
     }
 
-    function mdEscape(value) {
-      return String(value)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
-
-    function mdInline(value) {
-      return value
-        .replace(/\`([^\`]+)\`/g, '<code class="md-icode">$1</code>')
-        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-        .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-    }
-
-    function mdSplitRow(cells) {
-      return cells.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim());
-    }
-
-    function safeMarkdown(source) {
-      const lines = mdEscape(source || '').split('\n');
-      const out = [];
-      let i = 0;
-      const isTableSeparator = line => /^[\s:|–-]+$/.test(line) && line.includes('-');
-      const isListBullet = line => /^\s*[-*+]\s+/.test(line);
-      const isOrderedList = line => /^\s*\d+\.\s+/.test(line);
-      const isHeading = line => /^#{1,6}\s/.test(line);
-      while (i < lines.length) {
-        const line = lines[i];
-        if (/^\`\`\`/.test(line)) {
-          const buffer = [];
-          let j = i + 1;
-          while (j < lines.length && !/^\`\`\`/.test(lines[j])) { buffer.push(lines[j]); j += 1; }
-          out.push('<pre class="md-code"><code>' + buffer.join('\n') + '</code></pre>');
-          i = j + 1;
-          continue;
-        }
-        if (line.includes('|') && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
-          const header = mdSplitRow(lines[i]);
-          const body = [];
-          let j = i + 2;
-          while (j < lines.length && lines[j].includes('|') && !isTableSeparator(lines[j])) {
-            body.push(mdSplitRow(lines[j]));
-            j += 1;
-          }
-          const headHtml = header.map(cell => '<th>' + mdInline(cell) + '</th>').join('');
-          const rowsHtml = body.map(row => '<tr>' + row.map(cell => '<td>' + mdInline(cell) + '</td>').join('') + '</tr>').join('');
-          out.push('<div class="md-table-wrap"><table><thead><tr>' + headHtml + '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>');
-          i = j;
-          continue;
-        }
-        if (isHeading(line)) {
-          const level = line.match(/^#+/)[0].length;
-          out.push('<h' + level + '>' + mdInline(line.replace(/^#+\s*/, '')) + '</h' + level + '>');
-          i += 1;
-          continue;
-        }
-        if (/^>\s?/.test(line)) {
-          const buffer = [];
-          while (i < lines.length && /^>\s?/.test(lines[i])) { buffer.push(lines[i].replace(/^>\s?/, '')); i += 1; }
-          out.push('<blockquote class="md-quote">' + mdInline(buffer.join(' ')) + '</blockquote>');
-          continue;
-        }
-        if (isListBullet(line)) {
-          const buffer = [];
-          while (i < lines.length && isListBullet(lines[i])) { buffer.push(mdInline(lines[i].replace(/^\s*[-*+]\s+/, ''))); i += 1; }
-          out.push('<ul>' + buffer.map(item => '<li>' + item + '</li>').join('') + '</ul>');
-          continue;
-        }
-        if (isOrderedList(line)) {
-          const buffer = [];
-          while (i < lines.length && isOrderedList(lines[i])) { buffer.push(mdInline(lines[i].replace(/^\s*\d+\.\s+/, ''))); i += 1; }
-          out.push('<ol>' + buffer.map(item => '<li>' + item + '</li>').join('') + '</ol>');
-          continue;
-        }
-        if (/^\s*---+\s*$/.test(line)) { out.push('<hr class="md-hr">'); i += 1; continue; }
-        if (line.trim() === '') { i += 1; continue; }
-        const paragraph = [];
-        while (
-          i < lines.length && lines[i].trim() !== ''
-          && !/^\`\`\`/.test(lines[i]) && !isHeading(lines[i])
-          && !/^>\s?/.test(lines[i]) && !isListBullet(lines[i])
-          && !isOrderedList(lines[i]) && !/^\s*---+\s*$/.test(lines[i])
-        ) {
-          paragraph.push(lines[i]);
-          i += 1;
-        }
-        out.push('<p>' + paragraph.map(item => mdInline(item)).join('<br>') + '</p>');
-      }
-      return out.join('');
-    }
+    ${MARKDOWN_RENDERER_SOURCE}
 
     function renderContexts(contexts) {
       contextChips.replaceChildren();
