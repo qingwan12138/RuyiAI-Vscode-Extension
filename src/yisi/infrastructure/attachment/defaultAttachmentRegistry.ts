@@ -34,46 +34,35 @@ function cached<T>(id: string): () => T {
 //
 // Two host quirks are patched before first use:
 //  * pdf.js needs an explicit worker path, else it throws
-//    "No 'GlobalWorkerOptions.workerSrc' specified." → we point workerSrc at
-//    the legacy CJS worker.
-//  * its fake-worker bootstrap touches the browser global `document` (and
-//    sometimes `navigator`), which do not exist in the extension host, causing
-//    "Setting up fake worker failed: \"document is not defined\"." → we install
-//    tiny placeholder shims so the host proceeds; real browser globals are left
-//    untouched.
+//    "No 'GlobalWorkerOptions.workerSrc' specified." → workerSrc points at the
+//    legacy CJS worker.
+//  * its fake-worker bootstrap either has to dynamically `import()` the worker
+//    (which trips "document is not defined" in the host) or, if a `document`
+//    shim is present, fails into a browser-like code path (bare TypeError while
+//    reading pages). Instead we preload the worker module onto
+//    `globalThis.pdfjsWorker` so pdf.js reuses it directly and never needs the
+//    DOM shims at all.
 function cachedPdfJs(): () => Promise<PdfJsModule> {
   let modulePromise: Promise<PdfJsModule> | undefined;
   return () => {
     modulePromise ??= Promise.resolve().then(() => {
-      shimBrowserGlobalsForPdfJs();
       const pdfjs = require('pdfjs-dist/legacy/build/pdf.js') as PdfJsModule &
         { GlobalWorkerOptions?: { workerSrc?: string } };
       try {
         if (pdfjs.GlobalWorkerOptions) {
           pdfjs.GlobalWorkerOptions.workerSrc = require.resolve('pdfjs-dist/legacy/build/pdf.worker.js');
         }
+        const scope = globalThis as Record<string, unknown>;
+        if (scope.pdfjsWorker === undefined) {
+          scope.pdfjsWorker = require('pdfjs-dist/legacy/build/pdf.worker.js');
+        }
       } catch {
-        // Worker path resolution is best-effort; pdf.js falls back to auto.
+        // Worker preload/path resolution is best-effort; pdf.js falls back.
       }
       return pdfjs;
     });
     return modulePromise;
   };
-}
-
-/** Minimal placeholder shims so pdf.js worker bootstrap can run in the host. */
-function shimBrowserGlobalsForPdfJs(): void {
-  const scope = globalThis as Record<string, unknown>;
-  if (scope.document === undefined) {
-    scope.document = {
-      createElement: () => ({ getContext: () => null, style: {}, setAttribute: () => undefined }),
-      createElementNS: () => ({ setAttribute: () => undefined }),
-      documentElement: { style: {} }
-    };
-  }
-  if (scope.navigator === undefined) {
-    scope.navigator = { userAgent: 'node', platform: 'node' };
-  }
 }
 
 export function createDefaultAttachmentRegistry(): AttachmentExtractorRegistry {
