@@ -171,7 +171,6 @@
   },
   "icon": "media/ruyi-logo.png",
   "dependencies": {
-    "gpt-tokenizer": "^4.0.0",
     "jszip": "^3.10.1",
     "mammoth": "^1.12.2",
     "pdfjs-dist": "^3.11.174",

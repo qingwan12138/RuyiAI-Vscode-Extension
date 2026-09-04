@@ -43,9 +43,8 @@ import { RuyiCliAdapter } from './ruyi/ruyiCliAdapter';
 import { SymbolLookupService, createListSymbolsTool } from './application/context/symbolLookupService';
 import { VsCodeDocumentSymbolProvider } from './vscode/symbols/vsCodeSymbolProvider';
 import { EditJournalViewer } from './vscode/editJournalViewer';
-import { ContextUsageState, computeContextUsage, CONTEXT_OVERHEAD_TOKENS } from './application/context/contextUsage';
+import { ContextUsageState, computeContextUsage, estimateTokens, CONTEXT_OVERHEAD_TOKENS } from './application/context/contextUsage';
 import { ModelWindowOverride, modelContextWindow } from './domain/modelContextWindow';
-import { countTokens } from './infrastructure/llm/gptTokenCounter';
 import { NodeProcessRunner } from './infrastructure/process/nodeProcessRunner';
 import { VsCodeToolConfirmation } from './vscode/agent/vsCodeToolConfirmation';
 import { VsCodeDiagnosticProvider } from './vscode/diagnostics/vsCodeDiagnosticProvider';
@@ -272,7 +271,7 @@ async function readContextUsage(
     // family table so the ring shows a real percentage instead of "–".
     const windowTokens = capabilities.maxContextTokens
       ?? modelContextWindow(config?.kind ?? 'openaiCompatible', session.model.modelId, config?.capabilities.contextLength, readModelWindowOverrides());
-    const tokens = session.items.reduce((total, item) => total + countTokens(item.text ?? '', session.model.modelId), 0)
+    const tokens = session.items.reduce((total, item) => total + estimateTokens(item.text ?? ''), 0)
       + CONTEXT_OVERHEAD_TOKENS;
     return computeContextUsage(tokens, windowTokens);
   } catch {
