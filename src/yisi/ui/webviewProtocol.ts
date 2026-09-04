@@ -1,5 +1,6 @@
 import type { ModelControlState } from '../application/modelControl/modelControlService';
 import type { PermissionMode } from '../domain/session';
+import type { ContextUsageState } from '../application/context/contextUsage';
 
 export type WebviewMessage =
   | { type: 'ready' }
@@ -30,7 +31,8 @@ export type HostMessage =
   | { type: 'continueRequested' }
   | { type: 'sessionError'; message: string }
   | { type: 'contextState'; contexts: unknown[] }
-  | { type: 'modelControl.state'; state: ModelControlState };
+  | { type: 'modelControl.state'; state: ModelControlState }
+  | { type: 'contextUsage'; usage: ContextUsageState | null };
 
 export class WebviewProtocolError extends Error {
   constructor() {

@@ -43,6 +43,7 @@ import { RuyiCliAdapter } from './ruyi/ruyiCliAdapter';
 import { SymbolLookupService, createListSymbolsTool } from './application/context/symbolLookupService';
 import { VsCodeDocumentSymbolProvider } from './vscode/symbols/vsCodeSymbolProvider';
 import { EditJournalViewer } from './vscode/editJournalViewer';
+import { ContextUsageState, computeContextUsage } from './application/context/contextUsage';
 import { NodeProcessRunner } from './infrastructure/process/nodeProcessRunner';
 import { VsCodeToolConfirmation } from './vscode/agent/vsCodeToolConfirmation';
 import { VsCodeDiagnosticProvider } from './vscode/diagnostics/vsCodeDiagnosticProvider';
@@ -145,7 +146,8 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
     chat,
     new VsCodeWorkspaceContextPicker(attachmentService),
     modelControl,
-    agentWorkspace.profile
+    agentWorkspace.profile,
+    () => readContextUsage(sessions, providerCatalog)
   );
 
   context.subscriptions.push(
@@ -233,6 +235,23 @@ function showEditJournal(edits?: WorkspaceEditService): void {
 function readPdfVisionPagesLimit(): number {
   const value = vscode.workspace.getConfiguration('yisiAI').get<number>('pdfVisionMaxPages', 0);
   return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+}
+
+/** Estimated context usage for the active session (as a % of the model window). */
+async function readContextUsage(
+  sessions: SessionService,
+  providers: Pick<ProviderCatalog, 'resolve'>
+): Promise<ContextUsageState | null> {
+  try {
+    const session = sessions.getActiveSession();
+    if (!session.model.providerId || !session.model.modelId) return null;
+    const provider = await providers.resolve(session.model.providerId);
+    const capabilities = await provider.capabilities(session.model.modelId);
+    const chars = session.items.reduce((total, item) => total + (item.text?.length ?? 0), 0);
+    return computeContextUsage(chars, capabilities.maxContextTokens);
+  } catch {
+    return null;
+  }
 }
 
 function getWorkspaceId(): string {

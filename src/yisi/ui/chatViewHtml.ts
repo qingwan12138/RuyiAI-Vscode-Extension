@@ -725,6 +725,43 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       gap: 3px;
     }
 
+    /* Circular context-usage gauge (donut via conic-gradient + inner hole). */
+    .ctx-ring {
+      flex: none;
+      position: relative;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: conic-gradient(var(--yisi-accent) 0%, var(--yisi-border) 0);
+      color: var(--vscode-foreground);
+      cursor: default;
+    }
+
+    .ctx-ring::before {
+      content: '';
+      position: absolute;
+      inset: 4px;
+      border-radius: 50%;
+      background: var(--vscode-input-background, var(--vscode-sideBar-background));
+    }
+
+    .ctx-ring-text {
+      position: relative;
+      z-index: 1;
+      font-size: 7px;
+      font-weight: 600;
+      line-height: 1;
+      pointer-events: none;
+    }
+
+    .ctx-ring.unknown {
+      background: var(--vscode-toolbar-hoverBackground);
+      color: var(--yisi-muted);
+    }
+
     .control-button {
       max-width: 115px;
       height: 28px;
@@ -881,6 +918,9 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
         <div class="context-chips" id="contextChips" aria-label="Attached context"></div>
         <div class="composer-footer">
           <div class="composer-left">
+            <span class="ctx-ring" id="ctxRing" title="Context usage" hidden>
+              <span class="ctx-ring-text" id="ctxRingText">–</span>
+            </span>
             <button class="control-button" id="addContext" type="button" title="Add context">
               <span style="font-size:17px;line-height:1;">＋</span>
             </button>
@@ -1211,6 +1251,26 @@ ${permissionClientScript()}
 
     ${MARKDOWN_RENDERER_SOURCE}
 
+    function updateContextRing(usage) {
+      const ring = document.getElementById('ctxRing');
+      const text = document.getElementById('ctxRingText');
+      if (!ring || !text) return;
+      if (!usage) { ring.hidden = true; return; }
+      ring.hidden = false;
+      if (!usage.supported) {
+        ring.classList.add('unknown');
+        ring.style.background = '';
+        text.textContent = '–';
+        ring.title = 'Context window unknown for the selected model';
+        return;
+      }
+      ring.classList.remove('unknown');
+      const percent = Math.max(0, Math.min(100, usage.percent));
+      ring.style.background = 'conic-gradient(var(--yisi-accent) ' + percent + '%, var(--yisi-border) 0)';
+      text.textContent = percent + '%';
+      ring.title = 'Context used: ' + usage.usedTokens + ' / ' + usage.maxTokens + ' tokens (' + percent + '%)';
+    }
+
     function renderContexts(contexts) {
       contextChips.replaceChildren();
       const list = Array.isArray(contexts) ? contexts : [];
@@ -1378,6 +1438,10 @@ ${permissionClientScript()}
 
       if (message.type === 'contextState') {
         renderContexts(message.contexts);
+      }
+
+      if (message.type === 'contextUsage') {
+        updateContextRing(message.usage);
       }
 
       if (message.type === 'assistantStreamDelta' && transientAssistant) {

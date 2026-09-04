@@ -10,6 +10,7 @@ import { AttachmentOutcome } from '../application/attachment/attachmentService';
 import { ATTACHMENT_LIMITS } from '../context/attachment/attachmentTypes';
 import { ModelControlService } from '../application/modelControl/modelControlService';
 import type { PermissionMode } from '../domain/session';
+import type { ContextUsageState } from '../application/context/contextUsage';
 import {
   EditorSelectionTaskKind,
   buildSelectionTaskMessage
@@ -40,7 +41,8 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
     chat: ChatService,
     private readonly contextPicker: AttachmentContextPicker,
     private readonly modelControl: ModelControlService,
-    private readonly projectProfile?: ProjectProfileSource
+    private readonly projectProfile?: ProjectProfileSource,
+    private readonly contextUsage?: () => Promise<ContextUsageState | null>
   ) {
     this.runs = new ChatRunCoordinator(chat, event => {
       void this.view?.webview.postMessage(event);
@@ -387,6 +389,13 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
       type: 'modelControl.state',
       state: await this.modelControl.getState()
     });
+    let usage: ContextUsageState | null = null;
+    try {
+      usage = (await this.contextUsage?.()) ?? null;
+    } catch {
+      usage = null;
+    }
+    await this.view?.webview.postMessage({ type: 'contextUsage', usage });
   }
 
   private async publishContextState(): Promise<void> {
