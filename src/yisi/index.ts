@@ -25,7 +25,11 @@ import { AgentChatRunner } from './application/agent/agentChatRunner';
 import {
   WorkspaceEditService,
   createWorkspaceEditTool,
-  createWorkspaceFileTool
+  createWorkspaceFileTool,
+  createWorkspaceRewriteTool,
+  createWorkspaceDeleteTool,
+  createWorkspaceRenameTool,
+  createWorkspaceDirectoryTool
 } from './application/edit/workspaceEditService';
 import {
   CommandExecutionService,
@@ -168,6 +172,10 @@ async function createAgentWorkspace(): Promise<AgentWorkspaceServices> {
       ...createWorkspaceContextTools(new WorkspaceContextService(fileSystem)),
       createWorkspaceEditTool(edits),
       createWorkspaceFileTool(edits),
+      createWorkspaceRewriteTool(edits),
+      createWorkspaceDeleteTool(edits),
+      createWorkspaceRenameTool(edits),
+      createWorkspaceDirectoryTool(edits),
       createRunCommandTool(commands),
       createInspectProjectTool(profileService)
     ];

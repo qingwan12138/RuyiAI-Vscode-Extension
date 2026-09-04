@@ -199,3 +199,104 @@ test('bounds listing and search results and supports cancellation', async t => {
   controller.abort();
   await assert.rejects(adapter.searchText('needle', '.', controller.signal), error => error.name === 'AbortError');
 });
+
+test('rewrites the whole file atomically with a stale hash guard', async t => {
+  const { root, adapter } = await fixture(t);
+  const before = await adapter.readFile('README.md');
+
+  const result = await adapter.rewriteTextFile({
+    path: 'README.md',
+    expectedSha256: before.sha256,
+    content: 'entirely new content\n'
+  });
+
+  assert.equal(result.path, 'README.md');
+  assert.equal(result.beforeSha256, before.sha256);
+  assert.match(result.afterSha256, /^[a-f0-9]{64}$/);
+  assert.equal(await fs.readFile(path.join(root, 'README.md'), 'utf8'), 'entirely new content\n');
+  await assert.rejects(
+    adapter.rewriteTextFile({ path: 'README.md', expectedSha256: before.sha256, content: 'stale' }),
+    /changed since/i
+  );
+  await assert.rejects(
+    adapter.rewriteTextFile({ path: '.env', expectedSha256: 'a'.repeat(64), content: 'x' }),
+    /credential-sensitive/i
+  );
+});
+
+test('deletes a regular file with evidence and refuses dirs, sensitive paths and symlinks', async t => {
+  const { root, adapter } = await fixture(t);
+  const target = path.join(root, 'src', 'Alpha.ts');
+  const before = await adapter.readFile('src/Alpha.ts');
+
+  const result = await adapter.deleteFile({ path: 'src/Alpha.ts' });
+  assert.equal(result.path, 'src/Alpha.ts');
+  assert.equal(result.beforeSha256, before.sha256);
+  await assert.rejects(fs.stat(target), error => error.code === 'ENOENT');
+
+  await assert.rejects(adapter.deleteFile({ path: 'src' }), /not a file/i);
+  await assert.rejects(adapter.deleteFile({ path: 'missing.ts' }), /does not exist/i);
+  await fs.writeFile(path.join(root, '.env'), 'TOKEN=x');
+  await assert.rejects(adapter.deleteFile({ path: '.env' }), /credential-sensitive/i);
+
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'yisi-symlink-delete-'));
+  t.after(() => fs.rm(outside, { recursive: true, force: true }));
+  await fs.writeFile(path.join(outside, 'secret.txt'), 'x');
+  try {
+    await fs.symlink(path.join(outside, 'secret.txt'), path.join(root, 'link.txt'));
+  } catch (error) {
+    if (error && (error.code === 'EPERM' || error.code === 'EACCES')) {
+      t.skip('Symlink creation is unavailable on this Windows host.');
+      return;
+    }
+    throw error;
+  }
+  await assert.rejects(adapter.deleteFile({ path: 'link.txt' }), /symbolic link/i);
+});
+
+test('renames a file inside the workspace without overwriting', async t => {
+  const { root, adapter } = await fixture(t);
+  await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+
+  const result = await adapter.renameFile({ fromPath: 'src/Alpha.ts', toPath: 'tests/Alpha.ts' });
+  assert.equal(result.fromPath, 'src/Alpha.ts');
+  assert.equal(result.toPath, 'tests/Alpha.ts');
+  await assert.rejects(fs.stat(path.join(root, 'src', 'Alpha.ts')), error => error.code === 'ENOENT');
+  assert.equal(await fs.readFile(path.join(root, 'tests', 'Alpha.ts'), 'utf8'), 'const needle = "first";\n');
+
+  await assert.rejects(
+    adapter.renameFile({ fromPath: 'README.md', toPath: 'README.md' }),
+    /same path/i
+  );
+  await fs.writeFile(path.join(root, 'exists.txt'), 'occupied');
+  await assert.rejects(
+    adapter.renameFile({ fromPath: 'README.md', toPath: 'exists.txt' }),
+    /already exists/i
+  );
+  await assert.rejects(
+    adapter.renameFile({ fromPath: 'README.md', toPath: '../outside.txt' }),
+    WorkspaceBoundaryError
+  );
+  await assert.rejects(
+    adapter.renameFile({ fromPath: '.env', toPath: 'new.txt' }),
+    /credential-sensitive/i
+  );
+});
+
+test('creates nested directories inside the workspace only', async t => {
+  const { root, adapter } = await fixture(t);
+
+  const created = await adapter.createDirectory({ path: 'tests/unit/deep' });
+  assert.equal(created.created, true);
+  assert.equal(created.path, 'tests/unit/deep');
+  const stat = await fs.stat(path.join(root, 'tests', 'unit', 'deep'));
+  assert.ok(stat.isDirectory());
+
+  const existing = await adapter.createDirectory({ path: 'src' });
+  assert.equal(existing.created, false);
+  assert.equal(existing.path, 'src');
+
+  await assert.rejects(adapter.createDirectory({ path: '../outside' }), WorkspaceBoundaryError);
+  await assert.rejects(adapter.createDirectory({ path: '.' }), WorkspaceBoundaryError);
+  await assert.rejects(adapter.createDirectory({ path: '' }), WorkspaceBoundaryError);
+});

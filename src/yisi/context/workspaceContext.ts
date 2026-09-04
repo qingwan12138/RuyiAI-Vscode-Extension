@@ -33,6 +33,48 @@ export interface WorkspaceTextFileCreationResult {
   bytes: number;
 }
 
+export interface WorkspaceTextFileRewrite {
+  path: string;
+  expectedSha256: string;
+  content: string;
+}
+
+export interface WorkspaceTextFileRewriteResult {
+  path: string;
+  beforeSha256: string;
+  afterSha256: string;
+  bytes: number;
+}
+
+export interface WorkspaceFileDeletion {
+  path: string;
+}
+
+export interface WorkspaceFileDeletionResult {
+  path: string;
+  beforeSha256: string;
+  bytes: number;
+}
+
+export interface WorkspaceFileRename {
+  fromPath: string;
+  toPath: string;
+}
+
+export interface WorkspaceFileRenameResult {
+  fromPath: string;
+  toPath: string;
+}
+
+export interface WorkspaceDirectoryCreation {
+  path: string;
+}
+
+export interface WorkspaceDirectoryCreationResult {
+  path: string;
+  created: boolean;
+}
+
 export interface WorkspaceDirectoryEntry {
   path: string;
   name: string;
@@ -71,4 +113,8 @@ export interface FileSystemPort {
 export interface WorkspaceWritePort {
   replaceText(change: WorkspaceTextReplacement, signal?: AbortSignal): Promise<WorkspaceTextReplacementResult>;
   createTextFile(change: WorkspaceTextFileCreation, signal?: AbortSignal): Promise<WorkspaceTextFileCreationResult>;
+  rewriteTextFile(change: WorkspaceTextFileRewrite, signal?: AbortSignal): Promise<WorkspaceTextFileRewriteResult>;
+  deleteFile(change: WorkspaceFileDeletion, signal?: AbortSignal): Promise<WorkspaceFileDeletionResult>;
+  renameFile(change: WorkspaceFileRename, signal?: AbortSignal): Promise<WorkspaceFileRenameResult>;
+  createDirectory(change: WorkspaceDirectoryCreation, signal?: AbortSignal): Promise<WorkspaceDirectoryCreationResult>;
 }

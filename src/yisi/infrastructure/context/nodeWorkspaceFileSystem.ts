@@ -5,13 +5,21 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   FileSystemPort,
   WorkspaceContextLimits,
+  WorkspaceDirectoryCreation,
+  WorkspaceDirectoryCreationResult,
   WorkspaceDirectoryEntry,
   WorkspaceEntryKind,
   WorkspaceFileContent,
+  WorkspaceFileDeletion,
+  WorkspaceFileDeletionResult,
+  WorkspaceFileRename,
+  WorkspaceFileRenameResult,
   WorkspaceSearchMatch,
   WorkspaceSearchResult,
   WorkspaceTextFileCreation,
   WorkspaceTextFileCreationResult,
+  WorkspaceTextFileRewrite,
+  WorkspaceTextFileRewriteResult,
   WorkspaceTextReplacement,
   WorkspaceTextReplacementResult,
   WorkspaceWritePort
@@ -176,6 +184,176 @@ export class NodeWorkspaceFileSystem implements FileSystemPort, WorkspaceWritePo
   }
 
   /**
+   * Whole-file rewrite with the same stale-hash guard and atomic publish as
+   * {@link replaceText}. The policy layer decides WHICH paths may be rewritten
+   * whole (agent-created files); this port only guarantees a safe, bounded,
+   * single-file write without clobbering a concurrently changed file.
+   */
+  async rewriteTextFile(
+    change: WorkspaceTextFileRewrite,
+    signal?: AbortSignal
+  ): Promise<WorkspaceTextFileRewriteResult> {
+    signal?.throwIfAborted();
+    if (isImplicitlySensitivePath(change.path)) {
+      throw new WorkspaceContentError('Agent edits cannot target credential-sensitive paths.');
+    }
+    if (!/^[a-f0-9]{64}$/.test(change.expectedSha256)) {
+      throw new WorkspaceContentError('Expected file version is invalid.');
+    }
+    if (change.content.includes('\0')) {
+      throw new WorkspaceContentError('Binary workspace content is not supported.');
+    }
+    const content = Buffer.from(change.content, 'utf8');
+    if (content.byteLength > this.limits.maxReadBytes) {
+      throw new WorkspaceLimitError('New workspace content exceeds the edit limit.');
+    }
+    const target = await this.resolveExisting(change.path, false);
+    const stat = await fs.stat(target);
+    if (!stat.isFile()) throw new WorkspaceContentError('Workspace path is not a file.');
+    if (stat.size > this.limits.maxReadBytes) throw new WorkspaceLimitError('Workspace file exceeds the edit limit.');
+    const originalBytes = await readBounded(target, this.limits.maxReadBytes, signal);
+    const beforeSha256 = sha256(originalBytes);
+    if (beforeSha256 !== change.expectedSha256) {
+      throw new WorkspaceContentError('Workspace file changed since it was read.');
+    }
+    signal?.throwIfAborted();
+    const temporary = path.join(path.dirname(target), `.yisi-edit-${randomUUID()}.tmp`);
+    let handle: fs.FileHandle | undefined;
+    try {
+      handle = await fs.open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, stat.mode);
+      await handle.writeFile(content);
+      await handle.sync();
+      await handle.close();
+      handle = undefined;
+      await fs.chmod(temporary, stat.mode & 0o7777);
+      signal?.throwIfAborted();
+      await fs.rename(temporary, target);
+    } finally {
+      await handle?.close().catch(() => undefined);
+      await fs.unlink(temporary).catch(() => undefined);
+    }
+    return {
+      path: this.relative(target),
+      beforeSha256,
+      afterSha256: sha256(content),
+      bytes: content.byteLength
+    };
+  }
+
+  async deleteFile(
+    change: WorkspaceFileDeletion,
+    signal?: AbortSignal
+  ): Promise<WorkspaceFileDeletionResult> {
+    signal?.throwIfAborted();
+    if (isImplicitlySensitivePath(change.path)) {
+      throw new WorkspaceContentError('Agent deletion cannot target credential-sensitive paths.');
+    }
+    const raw = await this.rawTarget(change.path);
+    if (await this.isSymbolicLink(raw)) {
+      throw new WorkspaceContentError('Agent deletion through a symbolic link is not allowed.');
+    }
+    let target: string;
+    try {
+      target = await fs.realpath(raw);
+    } catch (error) {
+      if (hasCode(error, 'ENOENT')) throw new WorkspaceContentError('Workspace file does not exist.');
+      throw error;
+    }
+    this.assertWithinRoot(target, false);
+    const stat = await fs.stat(target);
+    if (!stat.isFile()) throw new WorkspaceContentError('Workspace path is not a file.');
+    if (stat.size > this.limits.maxReadBytes) throw new WorkspaceLimitError('Workspace file exceeds the edit limit.');
+    const bytes = await readBounded(target, this.limits.maxReadBytes, signal);
+    const beforeSha256 = sha256(bytes);
+    try {
+      await fs.unlink(target);
+    } catch (error) {
+      if (hasCode(error, 'ENOENT')) throw new WorkspaceContentError('Workspace file does not exist.');
+      throw error;
+    }
+    return { path: this.relative(target), beforeSha256, bytes: bytes.byteLength };
+  }
+
+  async renameFile(
+    change: WorkspaceFileRename,
+    signal?: AbortSignal
+  ): Promise<WorkspaceFileRenameResult> {
+    signal?.throwIfAborted();
+    if (isImplicitlySensitivePath(change.fromPath) || isImplicitlySensitivePath(change.toPath)) {
+      throw new WorkspaceContentError('Agent rename cannot target credential-sensitive paths.');
+    }
+    const rawFrom = await this.rawTarget(change.fromPath);
+    if (await this.isSymbolicLink(rawFrom)) {
+      throw new WorkspaceContentError('Agent rename through a symbolic link is not allowed.');
+    }
+    let from: string;
+    try {
+      from = await fs.realpath(rawFrom);
+    } catch (error) {
+      if (hasCode(error, 'ENOENT')) throw new WorkspaceContentError('Workspace source file does not exist.');
+      throw error;
+    }
+    this.assertWithinRoot(from, false);
+    const stat = await fs.stat(from);
+    if (!stat.isFile()) throw new WorkspaceContentError('Workspace source is not a file.');
+    const to = await this.resolveNewFile(change.toPath);
+    if (this.samePath(from, to)) {
+      throw new WorkspaceContentError('Rename source and target are the same path.');
+    }
+    try {
+      await fs.stat(to);
+      throw new WorkspaceContentError('Workspace rename target already exists.');
+    } catch (error) {
+      if (error instanceof WorkspaceContentError) throw error;
+      if (!hasCode(error, 'ENOENT')) throw error;
+    }
+    try {
+      await fs.rename(from, to);
+    } catch (error) {
+      if (hasCode(error, 'EEXIST') || hasCode(error, 'ENOTEMPTY')) {
+        throw new WorkspaceContentError('Workspace rename target already exists.');
+      }
+      throw error;
+    }
+    return { fromPath: this.relative(from), toPath: this.relative(to) };
+  }
+
+  async createDirectory(
+    change: WorkspaceDirectoryCreation,
+    signal?: AbortSignal
+  ): Promise<WorkspaceDirectoryCreationResult> {
+    signal?.throwIfAborted();
+    const raw = await this.rawTarget(change.path);
+    const relative = path.relative(this.root, raw);
+    if (!relative || relative === '.') {
+      throw new WorkspaceContentError('The workspace root itself cannot be created.');
+    }
+    const segments = relative.split(path.sep).filter(segment => segment.length > 0);
+    let current = this.root;
+    let created = false;
+    for (const segment of segments) {
+      signal?.throwIfAborted();
+      const candidate = path.join(current, segment);
+      try {
+        const canonical = await fs.realpath(candidate);
+        const stat = await fs.stat(canonical);
+        if (!stat.isDirectory()) throw new WorkspaceContentError('Workspace path is not a directory.');
+        this.assertWithinRoot(canonical, false);
+        current = canonical;
+      } catch (error) {
+        if (error instanceof WorkspaceContentError) throw error;
+        if (!hasCode(error, 'ENOENT')) throw error;
+        await fs.mkdir(candidate, { recursive: false });
+        created = true;
+        const canonical = await fs.realpath(candidate);
+        this.assertWithinRoot(canonical, false);
+        current = canonical;
+      }
+    }
+    return { path: this.relative(current), created };
+  }
+
+  /**
    * Raw file bytes for the attachment pipeline, without the UTF-8 text decoding
    * that {@link readFile} applies. Containment, symlink realpath and size checks
    * are identical to readFile so attachments cannot escape the workspace.
@@ -330,6 +508,31 @@ export class NodeWorkspaceFileSystem implements FileSystemPort, WorkspaceWritePo
     if ((!allowRoot && relative === '') || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
       throw new WorkspaceBoundaryError();
     }
+  }
+
+  /** Lexically validated workspace path (not yet realpath'd). */
+  private async rawTarget(relativePath: string): Promise<string> {
+    if (!relativePath || relativePath.includes('\0')) throw new WorkspaceBoundaryError('Workspace-relative path is required.');
+    if (path.isAbsolute(relativePath) || path.win32.isAbsolute(relativePath) || path.posix.isAbsolute(relativePath)) {
+      throw new WorkspaceBoundaryError('Absolute paths are not allowed.');
+    }
+    const resolved = path.resolve(this.root, relativePath);
+    this.assertWithinRoot(resolved, false);
+    return resolved;
+  }
+
+  private async isSymbolicLink(target: string): Promise<boolean> {
+    try {
+      const stat = await fs.lstat(target);
+      return stat.isSymbolicLink();
+    } catch (error) {
+      if (hasCode(error, 'ENOENT')) return false;
+      throw error;
+    }
+  }
+
+  private samePath(left: string, right: string): boolean {
+    return path.resolve(left) === path.resolve(right);
   }
 
   private relative(target: string): string {

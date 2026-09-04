@@ -5,7 +5,11 @@ const {
   WorkspaceEditInputError,
   WorkspaceEditService,
   createWorkspaceEditTool,
-  createWorkspaceFileTool
+  createWorkspaceFileTool,
+  createWorkspaceRewriteTool,
+  createWorkspaceDeleteTool,
+  createWorkspaceRenameTool,
+  createWorkspaceDirectoryTool
 } = require('../dist/yisi/application/edit/workspaceEditService');
 
 function harness(diagnostics) {
@@ -24,10 +28,35 @@ function harness(diagnostics) {
     async createTextFile(change, signal) {
       calls.push([change, signal]);
       return { path: change.path, sha256: 'c'.repeat(64), bytes: Buffer.byteLength(change.content) };
+    },
+    async rewriteTextFile(change, signal) {
+      calls.push([change, signal]);
+      return { path: change.path, beforeSha256: change.expectedSha256, afterSha256: 'd'.repeat(64), bytes: Buffer.byteLength(change.content) };
+    },
+    async deleteFile(change, signal) {
+      calls.push([change, signal]);
+      return { path: change.path, beforeSha256: 'e'.repeat(64), bytes: 4 };
+    },
+    async renameFile(change, signal) {
+      calls.push([change, signal]);
+      return { fromPath: change.fromPath, toPath: change.toPath };
+    },
+    async createDirectory(change, signal) {
+      calls.push([change, signal]);
+      return { path: change.path, created: true };
     }
   };
   const service = new WorkspaceEditService(port, diagnostics);
-  return { calls, service, tool: createWorkspaceEditTool(service), createTool: createWorkspaceFileTool(service) };
+  return {
+    calls,
+    service,
+    tool: createWorkspaceEditTool(service),
+    createTool: createWorkspaceFileTool(service),
+    rewriteTool: createWorkspaceRewriteTool(service),
+    deleteTool: createWorkspaceDeleteTool(service),
+    renameTool: createWorkspaceRenameTool(service),
+    directoryTool: createWorkspaceDirectoryTool(service)
+  };
 }
 
 const valid = {
@@ -116,4 +145,82 @@ test('rejects malformed or oversized edit inputs before reaching the write port'
     await assert.rejects(tool.execute(input, context), WorkspaceEditInputError);
   }
   assert.equal(calls.length, 0);
+});
+
+test('rewrites whole files only when the agent created them in this run', async () => {
+  const { calls, createTool, rewriteTool } = harness();
+  const signal = new AbortController().signal;
+  const context = { sessionId: 's1', workspaceUri: 'file:///workspace', signal };
+
+  assert.equal(rewriteTool.id, 'rewrite_text_file');
+  assert.equal(rewriteTool.risk, 'workspaceWrite');
+  assert.equal(rewriteTool.mutatesWorkspace, true);
+
+  // Not created by the agent -> rejected before the write port is touched.
+  await assert.rejects(
+    rewriteTool.execute({ path: 'src/user.ts', expectedSha256: 'a'.repeat(64), content: 'new' }, context),
+    /only allowed for files created by the agent/i
+  );
+  assert.equal(calls.length, 0);
+
+  // After an agent creation the same path may be rewritten whole.
+  await createTool.execute({ path: 'src/generated_test.ts', content: 'v1' }, context);
+  const result = await rewriteTool.execute(
+    { path: 'src/generated_test.ts', expectedSha256: 'c'.repeat(64), content: 'v2' },
+    context
+  );
+  assert.equal(result.edit.path, 'src/generated_test.ts');
+  assert.equal(result.edit.afterSha256, 'd'.repeat(64));
+  assert.equal(calls.length, 2);
+
+  for (const invalid of [
+    {}, { path: 'src/generated_test.ts', expectedSha256: 'bad', content: 'x' },
+    { path: 'src/generated_test.ts', expectedSha256: 'a'.repeat(64), content: 'x'.repeat(262_145) },
+    { path: 'src/generated_test.ts', expectedSha256: 'a'.repeat(64), content: 'x', extra: true }
+  ]) {
+    await assert.rejects(rewriteTool.execute(invalid, context), WorkspaceEditInputError);
+  }
+});
+
+test('delete clears the agent-created ledger and rename remaps it', async () => {
+  const { calls, createTool, rewriteTool, deleteTool, renameTool, directoryTool } = harness();
+  const signal = new AbortController().signal;
+  const context = { sessionId: 's1', workspaceUri: 'file:///workspace', signal };
+
+  assert.equal(deleteTool.id, 'delete_file');
+  assert.equal(renameTool.id, 'rename_file');
+  assert.equal(directoryTool.id, 'create_directory');
+  for (const tool of [deleteTool, renameTool, directoryTool]) {
+    assert.equal(tool.risk, 'workspaceWrite');
+    assert.equal(tool.mutatesWorkspace, true);
+  }
+
+  await createTool.execute({ path: 'tmp/keep.ts', content: 'x' }, context);
+  await renameTool.execute({ fromPath: 'tmp/keep.ts', toPath: 'tmp/kept.ts' }, context);
+  // Rewrite of the new path is allowed (ledger followed the rename)...
+  await rewriteTool.execute({ path: 'tmp/kept.ts', expectedSha256: 'c'.repeat(64), content: 'y' }, context);
+  // ...but the old path is gone from the ledger.
+  await assert.rejects(
+    rewriteTool.execute({ path: 'tmp/keep.ts', expectedSha256: 'c'.repeat(64), content: 'z' }, context),
+    /only allowed for files created by the agent/i
+  );
+
+  await createTool.execute({ path: 'tmp/gone.ts', content: 'x' }, context);
+  await deleteTool.execute({ path: 'tmp/gone.ts' }, context);
+  await assert.rejects(
+    rewriteTool.execute({ path: 'tmp/gone.ts', expectedSha256: 'c'.repeat(64), content: 'z' }, context),
+    /only allowed for files created by the agent/i
+  );
+
+  await directoryTool.execute({ path: 'tmp/nested' }, context);
+  assert.equal(calls.length, 6);
+
+  for (const invalid of [
+    { path: '' }, { path: 'a', extra: true },
+    { fromPath: '' }, { toPath: '' }, { fromPath: 'a', extra: true }
+  ]) {
+    await assert.rejects(deleteTool.execute(invalid, context), WorkspaceEditInputError);
+    await assert.rejects(renameTool.execute(invalid, context), WorkspaceEditInputError);
+    await assert.rejects(directoryTool.execute(invalid, context), WorkspaceEditInputError);
+  }
 });
