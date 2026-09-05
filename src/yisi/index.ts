@@ -25,6 +25,7 @@ import { WorkspaceContextService, createWorkspaceContextTools } from './applicat
 import { ToolRegistry } from './application/agent/toolRegistry';
 import { PermissionEngine } from './permissions/permissionEngine';
 import { AgentChatRunner } from './application/agent/agentChatRunner';
+import { AgentPlanService, createPlanTodoTool } from './application/agent/agentPlanService';
 import {
   WorkspaceEditService,
   createWorkspaceEditTool,
@@ -240,7 +241,8 @@ async function buildAgentRunner(
   approvals: ApprovalBroker,
   git: NodeGitService,
   worktrees: WorktreeManagerService,
-  includeDiagnostics: boolean
+  includeDiagnostics: boolean,
+  plan: AgentPlanService
 ): Promise<AgentChatRunner> {
   const fileSystem = await NodeWorkspaceFileSystem.create(root);
   const diagnostics = includeDiagnostics
@@ -272,6 +274,7 @@ async function buildAgentRunner(
     createRuyiInspectTool(ruyiInspection),
     createRuyiManageTool(new RuyiManageService(new RuyiCliAdapter())),
     createRuyiWorkflowTool(new RuyiWorkflowService(new RuyiCliAdapter())),
+    createPlanTodoTool(plan),
     createListSymbolsTool(symbols)
   ];
   return new AgentChatRunner(
@@ -288,12 +291,13 @@ async function createAgentWorkspace(approvals: ApprovalBroker): Promise<AgentWor
   try {
     const git = new NodeGitService(new NodeProcessRunner());
     const worktrees = new WorktreeManagerService(new NodeWorktreeManager(new NodeProcessRunner()), git);
-    const mainRunner = await buildAgentRunner(workspace.fsPath, workspace.uri, approvals, git, worktrees, true);
+    const plan = new AgentPlanService();
+    const mainRunner = await buildAgentRunner(workspace.fsPath, workspace.uri, approvals, git, worktrees, true, plan);
     const isolation = new SessionIsolationService(
       workspace.fsPath,
       SESSION_WORKTREES_DIR,
       worktrees,
-      (root, uri) => buildAgentRunner(root, uri, approvals, git, worktrees, false)
+      (root, uri) => buildAgentRunner(root, uri, approvals, git, worktrees, false, plan)
     );
     const mainFileSystem = await NodeWorkspaceFileSystem.create(workspace.fsPath);
     const profileService = new ProjectProfileService(mainFileSystem);
