@@ -23,6 +23,7 @@ import { selectLocalAgentWorkspace } from './vscode/context/localAgentWorkspace'
 import { NodeWorkspaceFileSystem } from './infrastructure/context/nodeWorkspaceFileSystem';
 import { WorkspaceContextService, createWorkspaceContextTools } from './application/context/workspaceContextService';
 import { RepoIndexService, createRepoIndexTool } from './application/context/repoIndexService';
+import { CapabilitiesResolver, buildCapabilitiesReport, createModelCapabilitiesTool } from './application/context/modelCapabilitiesService';
 import { ToolRegistry } from './application/agent/toolRegistry';
 import { PermissionEngine } from './permissions/permissionEngine';
 import { AgentChatRunner } from './application/agent/agentChatRunner';
@@ -116,7 +117,18 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
   await providerSetup.applyWorkspaceDefaultToActiveSession();
   const providerCatalog = new ProviderCatalog(providerConfigurations, secrets, process.env, providerFactory);
   const approvals = new ApprovalBroker();
-  const agentWorkspace = await createAgentWorkspace(approvals);
+  const resolveCapabilities: CapabilitiesResolver = async () => {
+    try {
+      const model = sessions.getActiveSession().model;
+      if (!model.providerId || !model.modelId) return null;
+      const provider = await providerCatalog.resolve(model.providerId);
+      const caps = await provider.capabilities(model.modelId);
+      return buildCapabilitiesReport(model.modelId, caps);
+    } catch {
+      return null;
+    }
+  };
+  const agentWorkspace = await createAgentWorkspace(approvals, resolveCapabilities);
   const modelControl = new ModelControlService(providerConfigurations, sessions, process.env);
   const attachmentService = new AttachmentService(createDefaultAttachmentRegistry(), {
     getVisionCapability: async () => {
@@ -243,7 +255,8 @@ async function buildAgentRunner(
   git: NodeGitService,
   worktrees: WorktreeManagerService,
   includeDiagnostics: boolean,
-  plan: AgentPlanService
+  plan: AgentPlanService,
+  resolveCapabilities: CapabilitiesResolver
 ): Promise<AgentChatRunner> {
   const fileSystem = await NodeWorkspaceFileSystem.create(root);
   const diagnostics = includeDiagnostics
@@ -261,6 +274,7 @@ async function buildAgentRunner(
   const tools = [
     ...createWorkspaceContextTools(new WorkspaceContextService(fileSystem)),
     createRepoIndexTool(new RepoIndexService(fileSystem)),
+    createModelCapabilitiesTool(resolveCapabilities),
     createWorkspaceEditTool(edits),
     createWorkspaceFileTool(edits),
     createWorkspaceRewriteTool(edits),
@@ -287,19 +301,19 @@ async function buildAgentRunner(
   );
 }
 
-async function createAgentWorkspace(approvals: ApprovalBroker): Promise<AgentWorkspaceServices> {
+async function createAgentWorkspace(approvals: ApprovalBroker, resolveCapabilities: CapabilitiesResolver): Promise<AgentWorkspaceServices> {
   const workspace = selectLocalAgentWorkspace(vscode.workspace.workspaceFolders);
   if (!workspace) return {};
   try {
     const git = new NodeGitService(new NodeProcessRunner());
     const worktrees = new WorktreeManagerService(new NodeWorktreeManager(new NodeProcessRunner()), git);
     const plan = new AgentPlanService();
-    const mainRunner = await buildAgentRunner(workspace.fsPath, workspace.uri, approvals, git, worktrees, true, plan);
+    const mainRunner = await buildAgentRunner(workspace.fsPath, workspace.uri, approvals, git, worktrees, true, plan, resolveCapabilities);
     const isolation = new SessionIsolationService(
       workspace.fsPath,
       SESSION_WORKTREES_DIR,
       worktrees,
-      (root, uri) => buildAgentRunner(root, uri, approvals, git, worktrees, false, plan)
+      (root, uri) => buildAgentRunner(root, uri, approvals, git, worktrees, false, plan, resolveCapabilities)
     );
     const mainFileSystem = await NodeWorkspaceFileSystem.create(workspace.fsPath);
     const profileService = new ProjectProfileService(mainFileSystem);
