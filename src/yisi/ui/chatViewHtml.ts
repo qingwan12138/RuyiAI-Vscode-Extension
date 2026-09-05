@@ -397,6 +397,29 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       background: var(--vscode-inputValidation-errorBackground, transparent);
     }
 
+    /* Copy-to-clipboard affordance, revealed on hover and positioned so the
+       button never overlaps the message text. */
+    .message { position: relative; }
+    .message-actions {
+      position: absolute;
+      top: 6px;
+      right: 8px;
+      opacity: 0;
+      transition: opacity 0.12s ease;
+    }
+    .message:hover .message-actions { opacity: 1; }
+    .message-copy {
+      border: 1px solid var(--yisi-border);
+      background: var(--yisi-surface);
+      color: var(--vscode-foreground);
+      border-radius: 5px;
+      padding: 1px 5px;
+      font-size: 11px;
+      line-height: 1.2;
+      cursor: pointer;
+    }
+    .message-copy:hover { background: var(--yisi-surface-hover); }
+
     .message.assistant {
       margin-right: 12px;
       border: 1px solid var(--yisi-border);
@@ -1244,6 +1267,7 @@ ${permissionClientScript()}
       const node = document.createElement('div');
       node.className = 'message ' + role + (streaming ? ' streaming' : '');
       renderMessageBody(node, text, role, streaming);
+      if (!streaming && (role === 'assistant' || role === 'user')) attachCopy(node, text);
       conversation.appendChild(node);
       welcome.style.display = 'none';
       conversation.classList.add('visible');
@@ -1261,6 +1285,53 @@ ${permissionClientScript()}
       } else {
         node.textContent = text;
       }
+    }
+
+    // Copy-to-clipboard for a message bubble. Copies the RAW text (never the
+    // rendered HTML, never the action button). navigator.clipboard works in the
+    // secure webview context with a textarea fallback for older engines.
+    function copyText(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text).then(() => true, () => fallbackCopy(text));
+      }
+      return Promise.resolve(fallbackCopy(text));
+    }
+    function fallbackCopy(text) {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.top = '0';
+      area.style.left = '0';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch { ok = false; }
+      area.remove();
+      return ok;
+    }
+    function attachCopy(node, text) {
+      const actions = document.createElement('div');
+      actions.className = 'message-actions';
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'message-copy';
+      copy.setAttribute('aria-label', '复制');
+      copy.title = '复制';
+      copy.textContent = '⧉';
+      copy.addEventListener('click', () => {
+        void copyText(text).then(ok => {
+          copy.textContent = ok ? '✓' : '—';
+          copy.setAttribute('aria-label', ok ? '已复制' : '复制失败');
+          setTimeout(() => {
+            copy.textContent = '⧉';
+            copy.setAttribute('aria-label', '复制');
+          }, 1200);
+        });
+      });
+      actions.appendChild(copy);
+      node.appendChild(actions);
     }
 
     ${MARKDOWN_RENDERER_SOURCE}
@@ -1499,6 +1570,7 @@ ${permissionClientScript()}
           // Re-render the finished text through the safe Markdown renderer so
           // the reply formats (headings/bold/tables/code) instead of staying raw.
           transientAssistant.innerHTML = safeMarkdown(streamedText);
+          attachCopy(transientAssistant, streamedText);
         }
         status.textContent = '';
         updateSendState();

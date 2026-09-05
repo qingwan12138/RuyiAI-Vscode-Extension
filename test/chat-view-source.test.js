@@ -33,6 +33,15 @@ test('run errors are rendered as a durable conversation bubble, not only the sta
   assert.match(source, /sessionError/);
 });
 
+test('assistant and user bubbles expose a copy-to-clipboard button', () => {
+  assert.match(source, /attachCopy/);
+  assert.match(source, /message-copy/);
+  assert.match(source, /navigator\.clipboard/);
+  assert.match(source, /function copyText/);
+  assert.match(source, /function fallbackCopy/);
+  assert.match(source, /!\s*streaming\s*&&\s*\(role === 'assistant' \|\| role === 'user'\)/);
+});
+
 test('host surfaces run errors only after re-publishing session state', () => {
   assert.match(provider, /surfaceRunOutcome/);
   assert.match(provider, /status !== 'error'/);
