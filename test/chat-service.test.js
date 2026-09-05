@@ -238,3 +238,45 @@ test('agent runner cancellation preserves the existing interrupted status behavi
   );
   assert.equal(sessions.getActiveSession().status, 'interrupted');
 });
+
+test('uses a session-scoped runner for write sessions and falls back to the shared runner for plan', async () => {
+  const repository = new MemoryRepository();
+  let id = 0;
+  const sessions = new SessionService(repository, { now: () => ++id, createId: () => `id-${++id}` });
+  await sessions.initialize('workspace', []);
+  await sessions.setModelSelection({ providerId: 'provider', modelId: 'model' });
+  await sessions.setPermissionMode('manual');
+
+  const toolProvider = {
+    id: 'provider',
+    async capabilities() { return { streaming: true, toolCalling: true }; },
+    async *streamAgent() { yield { type: 'textDelta', text: 'x' }; }
+  };
+  const shared = { async run(_p, _r, _s, onDelta) { onDelta('shared answer'); return 'shared answer'; } };
+  const scoped = { async run(_p, _r, _s, onDelta) { onDelta('scoped answer'); return 'scoped answer'; } };
+  let scopedCalls = 0;
+  const chat = new ChatService(
+    sessions,
+    { resolve: async () => toolProvider },
+    shared,
+    undefined,
+    undefined,
+    async session => {
+      if (session.mode === 'plan') return undefined;
+      scopedCalls += 1;
+      return scoped;
+    }
+  );
+
+  const deltas = [];
+  await chat.send('Write in a session', delta => deltas.push(delta), new AbortController().signal);
+  assert.equal(deltas.join(''), 'scoped answer');
+  assert.equal(scopedCalls, 1);
+
+  // A plan session must not be isolated: it falls back to the shared runner.
+  await sessions.setPermissionMode('plan');
+  const planDeltas = [];
+  await chat.send('Read only', delta => planDeltas.push(delta), new AbortController().signal);
+  assert.equal(planDeltas.join(''), 'shared answer');
+  assert.equal(scopedCalls, 1);
+});

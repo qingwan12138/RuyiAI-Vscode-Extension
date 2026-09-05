@@ -39,7 +39,8 @@ export class ChatService {
     private readonly providers: Pick<ProviderCatalog, 'resolve'>,
     private readonly agentRunner?: AgentConversationRunner,
     private readonly identityQuestions?: () => IdentityQuestionPolicy,
-    private readonly rehydrator?: AttachmentRehydrator
+    private readonly rehydrator?: AttachmentRehydrator,
+    private readonly sessionRunner?: (session: { sessionId: string; mode: PermissionMode }) => Promise<AgentConversationRunner | undefined>
   ) {}
 
   async send(
@@ -86,10 +87,11 @@ export class ChatService {
         const rehydrated = await this.rehydratePriorContexts(active.items, priorItemCount, signal);
         messages = historyMessages(active.items, priorItemCount, normalizedContexts, attachmentBudget, rehydrated);
         if (capabilities.toolCalling) {
-          if (!this.agentRunner) {
+          const runner = await this.resolveAgentRunner(active);
+          if (!runner) {
             throw new Error('Agent tools are unavailable for the current workspace. Use one local workspace folder or disable tool calling for this provider.');
           }
-          response = await this.agentRunner.run(
+          response = await runner.run(
             provider,
             { model: selected.modelId, messages, ...sampling },
             { sessionId: active.id, mode: active.permissionMode },
@@ -111,6 +113,19 @@ export class ChatService {
     } finally {
       this.running = false;
     }
+  }
+
+  /**
+   * A write session may be isolated onto its own worktree (v0.4 DoD). When a
+   * session-scoped runner is provided it takes precedence; otherwise fall back
+   * to the shared agent runner.
+   */
+  private async resolveAgentRunner(active: { id: string; permissionMode: PermissionMode }): Promise<AgentConversationRunner | undefined> {
+    if (this.sessionRunner) {
+      const scoped = await this.sessionRunner({ sessionId: active.id, mode: active.permissionMode });
+      if (scoped) return scoped;
+    }
+    return this.agentRunner;
   }
 
   /** Re-reads attachments stored on earlier user messages so they stay

@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import { randomUUID } from 'node:crypto';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { ProviderConfigurationService } from './application/provider/providerConfigurationService';
 import { ChatService } from './application/chat/chatService';
 import { LegacySessionMetadata, SessionService } from './application/session/sessionService';
@@ -51,6 +53,7 @@ import { NodeGitService } from './infrastructure/git/nodeGitService';
 import { NodeWorktreeManager } from './infrastructure/git/nodeWorktreeManager';
 import { GitStatusService, createGitStatusTool } from './application/git/gitStatusService';
 import { WorktreeManagerService, createGitWorktreeTool } from './application/git/worktreeManagerService';
+import { SessionIsolationService, SessionRunnerResolver } from './application/workspace/sessionIsolation';
 import { VsCodeToolConfirmation } from './vscode/agent/vsCodeToolConfirmation';
 import { VsCodeDiagnosticProvider } from './vscode/diagnostics/vsCodeDiagnosticProvider';
 import type { ProjectProfileSource } from './ui/chatViewProvider';
@@ -144,7 +147,8 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
         extraKeywords: section.get<string[]>('identityBypassKeywords', [])
       };
     },
-    new VsCodeAttachmentRehydrator(attachmentService)
+    new VsCodeAttachmentRehydrator(attachmentService),
+    agentWorkspace.sessionResolver ? session => agentWorkspace.sessionResolver!.resolve(session) : undefined
   );
   const chatView = new YisiChatViewProvider(
     context.extensionUri,
@@ -212,53 +216,96 @@ interface AgentWorkspaceServices {
   edits?: WorkspaceEditService;
 }
 
+interface AgentWorkspaceServices {
+  runner?: AgentChatRunner;
+  profile?: ProjectProfileSource;
+  edits?: WorkspaceEditService;
+  sessionResolver?: SessionRunnerResolver;
+}
+
+/** The directory where isolated session worktrees are created. */
+const SESSION_WORKTREES_DIR = path.join(os.tmpdir(), 'yisi-agent-worktrees');
+
+/**
+ * Build an AgentChatRunner whose tools are bound to a single execution root.
+ * `includeDiagnostics` turns on idle VS Code diagnostics for the root (used for
+ * the shared workspace, off for isolated session worktrees which have no open
+ * editor buffers).
+ */
+async function buildAgentRunner(
+  root: string,
+  uri: string,
+  approvals: ApprovalBroker,
+  git: NodeGitService,
+  worktrees: WorktreeManagerService,
+  includeDiagnostics: boolean
+): Promise<AgentChatRunner> {
+  const fileSystem = await NodeWorkspaceFileSystem.create(root);
+  const diagnostics = includeDiagnostics
+    ? new VsCodeDiagnosticProvider({
+        getDiagnostics: () => vscode.languages.getDiagnostics(),
+        getWorkspaceFolder: folder => vscode.workspace.getWorkspaceFolder(folder as vscode.Uri)
+      }, [uri], 50)
+    : undefined;
+  const edits = new WorkspaceEditService(fileSystem, diagnostics, fileSystem, git, root);
+  const commands = new CommandExecutionService(new NodeProcessRunner(), root);
+  const profileService = new ProjectProfileService(fileSystem);
+  const validationPlanner = new ValidationPlannerService(commands, profileService);
+  const ruyiInspection = new RuyiInspectionService(commands, new RuyiCliAdapter());
+  const symbols = new SymbolLookupService(root, new VsCodeDocumentSymbolProvider());
+  const tools = [
+    ...createWorkspaceContextTools(new WorkspaceContextService(fileSystem)),
+    createWorkspaceEditTool(edits),
+    createWorkspaceFileTool(edits),
+    createWorkspaceRewriteTool(edits),
+    createWorkspaceDeleteTool(edits),
+    createWorkspaceRenameTool(edits),
+    createWorkspaceDirectoryTool(edits),
+    createUndoLastEditTool(edits),
+    createRunCommandTool(commands),
+    createGitStatusTool(new GitStatusService(git), root),
+    createGitWorktreeTool(worktrees, root),
+    createInspectProjectTool(profileService),
+    createRunValidationsTool(validationPlanner),
+    createRuyiInspectTool(ruyiInspection),
+    createListSymbolsTool(symbols)
+  ];
+  return new AgentChatRunner(
+    new ToolRegistry(tools),
+    new PermissionEngine(),
+    uri,
+    new VsCodeToolConfirmation(approvals)
+  );
+}
+
 async function createAgentWorkspace(approvals: ApprovalBroker): Promise<AgentWorkspaceServices> {
   const workspace = selectLocalAgentWorkspace(vscode.workspace.workspaceFolders);
   if (!workspace) return {};
   try {
-    const fileSystem = await NodeWorkspaceFileSystem.create(workspace.fsPath);
     const git = new NodeGitService(new NodeProcessRunner());
     const worktrees = new WorktreeManagerService(new NodeWorktreeManager(new NodeProcessRunner()), git);
-    const diagnostics = new VsCodeDiagnosticProvider({
-      getDiagnostics: () => vscode.languages.getDiagnostics(),
-      getWorkspaceFolder: uri => vscode.workspace.getWorkspaceFolder(uri as vscode.Uri)
-    }, [workspace.uri], 50);
-    const edits = new WorkspaceEditService(fileSystem, diagnostics, fileSystem, git, workspace.fsPath);
-    const commands = new CommandExecutionService(new NodeProcessRunner(), workspace.fsPath);
-    const profileService = new ProjectProfileService(fileSystem);
-    const validationPlanner = new ValidationPlannerService(commands, profileService);
-    const ruyiInspection = new RuyiInspectionService(commands, new RuyiCliAdapter());
-    const symbols = new SymbolLookupService(workspace.fsPath, new VsCodeDocumentSymbolProvider());
-    const tools = [
-      ...createWorkspaceContextTools(new WorkspaceContextService(fileSystem)),
-      createWorkspaceEditTool(edits),
-      createWorkspaceFileTool(edits),
-      createWorkspaceRewriteTool(edits),
-      createWorkspaceDeleteTool(edits),
-      createWorkspaceRenameTool(edits),
-      createWorkspaceDirectoryTool(edits),
-      createUndoLastEditTool(edits),
-      createRunCommandTool(commands),
-      createGitStatusTool(new GitStatusService(git), workspace.fsPath),
-      createGitWorktreeTool(worktrees, workspace.fsPath),
-      createInspectProjectTool(profileService),
-      createRunValidationsTool(validationPlanner),
-      createRuyiInspectTool(ruyiInspection),
-      createListSymbolsTool(symbols)
-    ];
-    const runner = new AgentChatRunner(
-      new ToolRegistry(tools),
-      new PermissionEngine(),
-      workspace.uri,
-      new VsCodeToolConfirmation(approvals)
+    const mainRunner = await buildAgentRunner(workspace.fsPath, workspace.uri, approvals, git, worktrees, true);
+    const isolation = new SessionIsolationService(
+      workspace.fsPath,
+      SESSION_WORKTREES_DIR,
+      worktrees,
+      (root, uri) => buildAgentRunner(root, uri, approvals, git, worktrees, false)
     );
+    const mainFileSystem = await NodeWorkspaceFileSystem.create(workspace.fsPath);
+    const profileService = new ProjectProfileService(mainFileSystem);
+    const edits = new WorkspaceEditService(mainFileSystem, undefined, mainFileSystem, git, workspace.fsPath);
     const profile: ProjectProfileSource = {
       inspect: async () => {
         const inspection = await profileService.inspect();
         return inspection.summary;
       }
     };
-    return { runner, profile, edits };
+    return {
+      runner: mainRunner,
+      profile,
+      edits,
+      sessionResolver: isolation
+    };
   } catch {
     console.warn('[Yisi AI] Local Agent workspace initialization is unavailable.');
     return {};
