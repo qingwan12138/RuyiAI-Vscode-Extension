@@ -280,3 +280,31 @@ test('uses a session-scoped runner for write sessions and falls back to the shar
   assert.equal(planDeltas.join(''), 'shared answer');
   assert.equal(scopedCalls, 1);
 });
+
+test('compacts a long history when the provider declares a context window (v0.7 DoD)', async () => {
+  const repository = new MemoryRepository();
+  let id = 0;
+  const sessions = new SessionService(repository, { now: () => ++id, createId: () => `id-${++id}` });
+  await sessions.initialize('workspace', []);
+  await sessions.setModelSelection({ providerId: 'provider', modelId: 'model' });
+  const capture = {};
+  const provider = {
+    id: 'provider',
+    async capabilities() { return { streaming: true, maxContextTokens: 5_000 }; },
+    async *streamChat(request) { capture.request = request; yield { text: 'ok' }; }
+  };
+  const chat = new ChatService(sessions, { resolve: async () => provider }, undefined);
+
+  // Seed a long history (well over the ~3000-token history budget).
+  for (let index = 0; index < 6; index += 1) {
+    await sessions.appendUserMessage('u'.repeat(1_500), []);
+    await sessions.appendAssistantMessage('a'.repeat(1_500), 'provider');
+  }
+
+  await chat.send('now', () => {}, new AbortController().signal);
+
+  assert.equal(capture.request.messages[0].role, 'system');
+  assert.match(capture.request.messages[0].content, /Earlier conversation omitted/);
+  // The history is compacted to a bounded tail (well under the 13 raw turns).
+  assert.ok(capture.request.messages.length < 13, 'history messages were compacted');
+});

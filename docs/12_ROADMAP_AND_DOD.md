@@ -57,6 +57,8 @@ DoD：至少一个真实 Ruyi/RISC-V fixture 或测试环境完成端到端 work
 - provider capability degradation、cost/context controls
 DoD：长会话不因简单 context overflow 崩溃；模型能力缺失有明确降级。
 
+当前实现状态（2026-09-05，context 防护已落地）：新增 **`ContextCompactor`**（application/context）：基于模型 context window，把超出历史预算的最早 turns 截断，保留最近的 turns，并在请求里前置一并 system 说明（"[Earlier conversation omitted: N older message(s)...] 以最新指令为准"）。`ChatService.send` 在 provider 声明了 `maxContextTokens` 时触发（`capabilities.maxContextTokens` 缺省则不压缩，与既有 attachment budget 行为一致）；`estimateTokens` 有界，超大输入不崩溃。**DoD "长会话不因简单 context overflow 崩溃" 已由该护栏满足**。覆盖：`test/context-compactor.test.js`（预算内不压缩、超预算截断保尾部、空/超大输入不崩溃）、`test/chat-service.test.js`（provider 声明窗口时压缩并前置 system note、消息数有界）。**待续**：repo map/index、plan/todo、history management 的统一管理，provider capability **degradation**（如 tool-calling/vision 缺失时的明确降级与 UI 提示，现仅 vision 附件门禁用）与 cost/context 控制面板（当前仅有 context usage ring），以及跨 provider 的 `modelContextWindow` 兜底线程进压缩。
+
 ## v0.8 Upstream Integration
 - 合并进指定 ruyisdk-vscode-extension
 - one VSIX

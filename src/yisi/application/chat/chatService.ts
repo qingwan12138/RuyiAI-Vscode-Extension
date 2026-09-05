@@ -7,6 +7,8 @@ import { AttachmentRehydrator } from '../attachment/attachmentService';
 import { IdentityQuestionPolicy, isIdentityQuestion } from './identityQuestion';
 import { assembleAttachmentContexts, computeAttachmentBudget } from './attachmentPrompt';
 import { AgentToolEvent } from '../agent/readOnlyAgentLoop';
+import { compactHistory, CompactableMessage } from '../context/contextCompactor';
+import { estimateTokens, CONTEXT_OVERHEAD_TOKENS } from '../context/contextUsage';
 
 export interface AgentConversationRunner {
   run(
@@ -86,6 +88,29 @@ export class ChatService {
         );
         const rehydrated = await this.rehydratePriorContexts(active.items, priorItemCount, signal);
         messages = historyMessages(active.items, priorItemCount, normalizedContexts, attachmentBudget, rehydrated);
+        // Long-session guard (v0.7 DoD): when the provider declares a context
+        // window, drop the oldest history turns that exceed it so a long
+        // conversation never overflows and fails the request.
+        const windowTokens = capabilities.maxContextTokens;
+        if (windowTokens && windowTokens > 0 && messages.length > 1) {
+          const last = messages[messages.length - 1];
+          const currentTokens = estimateTokens(typeof last.content === 'string' ? last.content : '');
+          const historyBudget = windowTokens - CONTEXT_OVERHEAD_TOKENS - currentTokens;
+          if (historyBudget > 0) {
+            const history: CompactableMessage[] = messages.slice(0, -1).map(message => ({
+              role: message.role,
+              text: typeof message.content === 'string' ? message.content : ''
+            }));
+            const compacted = compactHistory(history, historyBudget);
+            if (compacted.note) {
+              messages = [
+                { role: 'system' as const, content: compacted.note },
+                ...compacted.messages.map(compactable => textMessage(compactable)),
+                last
+              ];
+            }
+          }
+        }
         if (capabilities.toolCalling) {
           const runner = await this.resolveAgentRunner(active);
           if (!runner) {
@@ -172,8 +197,13 @@ function isAttachmentContext(value: unknown): value is AttachmentContext {
     && Array.isArray((value as AttachmentContext).chunks);
 }
 
-function withExplicitContext(text: string, attachments: AttachmentContext[], budgetTokens: number): MessageContent {
-  if (attachments.length === 0) return text;
+/** Rebuild an agent message from compacted history text (user/assistant only). */
+function textMessage(message: CompactableMessage): AgentConversationMessage {
+  if (message.role === 'assistant') return { role: 'assistant', content: message.text };
+  return { role: 'user', content: message.text };
+}
+
+function withExplicitContext(text: string, attachments: AttachmentContext[], budgetTokens: number): MessageContent {  if (attachments.length === 0) return text;
 
   const textual = attachments.filter(attachment => attachment.chunks.length > 0);
   const imageParts: Array<{ payload: AttachmentImagePayload; contextName: string }> = [];
