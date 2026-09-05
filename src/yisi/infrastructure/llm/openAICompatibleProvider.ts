@@ -150,7 +150,6 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
     const calls = new Map<number, { id: string; name: string; arguments: string }>();
     let emitted = false;
-    let sawText = false;
     let sawTool = false;
     for await (const data of parseServerSentEvents(response.body, signal)) {
       if (data === '[DONE]') break;
@@ -160,15 +159,18 @@ export class OpenAICompatibleProvider implements LLMProvider {
       }
       const choice = firstChoice(event);
       const delta = choice.delta;
+      // A single assistant turn may legally carry BOTH text (e.g. a short
+      // preamble like "let me read that first") and tool calls. Keep both:
+      // stream the text, and accumulate the tool fragments so the agent loop
+      // attaches the text to the assistant message alongside the calls instead
+      // of rejecting the whole round.
       if (typeof delta.content === 'string' && delta.content) {
-        if (sawTool) throw new ProviderTransportError('Provider mixed text and tool calls in one response.');
-        sawText = true;
         emitted = true;
         yield { type: 'textDelta', text: delta.content };
       }
       if (delta.tool_calls !== undefined) {
-        if (sawText || !Array.isArray(delta.tool_calls)) {
-          throw new ProviderTransportError('Provider mixed text and tool calls in one response.');
+        if (!Array.isArray(delta.tool_calls)) {
+          throw new ProviderTransportError('Malformed provider tool call.');
         }
         sawTool = true;
         for (const fragment of delta.tool_calls) appendToolFragment(calls, fragment);

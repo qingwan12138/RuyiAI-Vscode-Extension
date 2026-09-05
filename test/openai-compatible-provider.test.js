@@ -249,7 +249,7 @@ test('rejects malformed, missing, and oversized tool call arguments', async () =
   }
 });
 
-test('emits multiple indexed calls and rejects mixed or excessive calls', async () => {
+test('emits multiple indexed calls and tolerates text+tool in one round, rejecting excessive calls', async () => {
   const calls = [
     { index: 0, id: 'c0', function: { name: 'read_file', arguments: '{"path":"a"}' } },
     { index: 1, id: 'c1', function: { name: 'list_directory', arguments: '{"path":"."}' } }
@@ -266,17 +266,20 @@ test('emits multiple indexed calls and rejects mixed or excessive calls', async 
     ['c0', 'c1']
   );
 
+  // A single assistant turn may legally carry text (a preamble) AND tool calls.
   const mixed = new OpenAICompatibleProvider({
     id: 'p', baseUrl: 'https://example.com/v1',
     fetchImpl: async () => sseResponse([
       'data: {"choices":[{"delta":{"content":"text"},"finish_reason":null}]}\n\n',
-      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [calls[0]] }, finish_reason: null }] })}\n\n`
+      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [calls[0]] }, finish_reason: null }] })}\n\n`,
+      'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n'
     ])
   });
-  await assert.rejects(
-    async () => collectEvents(mixed.streamAgent({ model: 'm', messages: [], tools: [] })),
-    /mixed text and tool calls/
-  );
+  const mixedEvents = await collectEvents(mixed.streamAgent({ model: 'm', messages: [], tools: [] }));
+  assert.equal(mixedEvents[0].type, 'textDelta');
+  assert.equal(mixedEvents[0].text, 'text');
+  assert.equal(mixedEvents[1].type, 'toolCall');
+  assert.equal(mixedEvents[1].call.id, 'c0');
 
   const excessiveCalls = Array.from({ length: 17 }, (_, index) => ({
     index, id: `c${index}`, function: { name: 'read_file', arguments: '{}' }

@@ -114,15 +114,18 @@ export class AgentToolLoop {
         }
       }
 
-      if (textDeltas.length > 0 && toolCalls.length > 0) {
-        return blocked('Provider mixed text and tool calls in one round.', executions);
-      }
       if (toolCalls.length === 0) {
         const finalText = textDeltas.join('');
         if (!finalText) return blocked('Provider returned empty agent output.', executions);
         for (const delta of textDeltas) onDelta(delta);
         return { status: 'completed', finalText, executions };
       }
+
+      // A single model turn may carry text (a preamble) AND tool calls. Keep
+      // both: stream the preamble to the user, and attach it as the assistant
+      // message content so the model sees its own commentary in the next round.
+      const assistantText = textDeltas.join('');
+      for (const delta of textDeltas) onDelta(delta);
 
       const toolMessages: AgentConversationMessage[] = [];
       for (const call of toolCalls) {
@@ -199,7 +202,7 @@ export class AgentToolLoop {
         executions.push({ callId: call.id, toolId: call.name, outcome, truncated });
         toolMessages.push({ role: 'tool', toolCallId: call.id, name: call.name, content });
       }
-      messages.push({ role: 'assistant', content: '', toolCalls: structuredClone(toolCalls) }, ...toolMessages);
+      messages.push({ role: 'assistant', content: assistantText, toolCalls: structuredClone(toolCalls) }, ...toolMessages);
     }
     return blocked('Agent round budget exhausted.', executions);
   }

@@ -243,7 +243,7 @@ test('truncates large tool results using a valid JSON envelope', async () => {
   assert.equal(result.executions[0].truncated, true);
 });
 
-test('blocks repeated calls, mixed text/tool rounds, empty output, and exhausted rounds', async () => {
+test('blocks repeated calls, empty output, and exhausted rounds', async () => {
   const signal = new AbortController().signal;
   const registry = new ToolRegistry([tool()]);
   const repeated = new ReadOnlyAgentLoop(provider([
@@ -251,9 +251,6 @@ test('blocks repeated calls, mixed text/tool rounds, empty output, and exhausted
     [call('c2', 'read_file', { path: 'a' })]
   ]), registry, new PermissionEngine());
   assert.match((await repeated.run(request, context(signal), 'manual', () => {}, signal)).reason, /Repeated tool call/);
-
-  const mixed = new ReadOnlyAgentLoop(provider([[text('maybe'), call('c1', 'read_file', { path: 'a' })]]), registry, new PermissionEngine());
-  assert.match((await mixed.run(request, context(signal), 'manual', () => {}, signal)).reason, /mixed text and tool/i);
 
   const empty = new ReadOnlyAgentLoop(provider([[]]), registry, new PermissionEngine());
   assert.match((await empty.run(request, context(signal), 'manual', () => {}, signal)).reason, /empty/i);
@@ -263,6 +260,38 @@ test('blocks repeated calls, mixed text/tool rounds, empty output, and exhausted
     [call('c2', 'read_file', { path: 'b' })]
   ]), registry, new PermissionEngine(), { maxRounds: 2 });
   assert.match((await budget.run(request, context(signal), 'manual', () => {}, signal)).reason, /round budget/i);
+});
+
+test('accepts a round that mixes text and a tool call: streams the preamble, keeps the content, then completes', async () => {
+  const requests = [];
+  const executed = [];
+  const signal = new AbortController().signal;
+  const registry = new ToolRegistry([tool('read_file', async (input) => {
+    executed.push(input);
+    return { path: input.path, text: 'content' };
+  })]);
+  const loop = new ReadOnlyAgentLoop(
+    provider([
+      [text('let me check'), call('c1', 'read_file', { path: 'src/a.ts' })],
+      [text('final answer')]
+    ], requests),
+    registry,
+    new PermissionEngine()
+  );
+  const deltas = [];
+
+  const result = await loop.run(request, context(signal), 'manual', delta => deltas.push(delta), signal);
+
+  assert.equal(result.status, 'completed');
+  assert.equal(result.finalText, 'final answer');
+  assert.deepEqual(deltas, ['let me check', 'final answer']);
+  assert.deepEqual(executed[0], { path: 'src/a.ts' });
+  // The assistant message carries the preamble text alongside the tool calls.
+  const assistant = requests[1].request.messages.slice(-2)[0];
+  assert.equal(assistant.role, 'assistant');
+  assert.equal(assistant.content, 'let me check');
+  assert.equal(assistant.toolCalls.length, 1);
+  assert.equal(assistant.toolCalls[0].name, 'read_file');
 });
 
 test('forwards cancellation without converting it into a successful result', async () => {
