@@ -68,7 +68,7 @@ DoD：原 RuyiSDK regression + Yisi regression 全过；集成 diff 集中在 se
 ## v0.9 RC
 性能、安全、许可证、依赖、迁移、日志 redaction、文档、兼容矩阵。
 
-当前实现状态（2026-09-05，安全 + 依赖/许可证守卫 + schema 迁移守卫 + 性能基线 + 兼容矩阵已落地）：新增 **`SecretRedactor`**（redaction，已接入 `OpenAICompatibleProvider.requireSuccess`）、**依赖/许可证守卫** `test/dependency-notices.test.js`（运行时依赖须登记 NOTICES、拦截 native addon）、**schema/迁移守卫** `test/session-schema.test.js`（合法 v1 round-trip、拒绝未来 schemaVersion、非法结构拒绝）、**性能基线** `test/performance-sanity.test.js`（estimateTokens/compactHistory/porcelain 解析在病理输入下保持有界快速）、**兼容矩阵** `docs/18_COMPATIBILITY_MATRIX.md`（engines/OS/依赖/编译/测试矩阵 + 环境依赖验收清单）。覆盖：`test/secret-redactor.test.js`、`test/openai-compatible-provider.test.js`（错误体脱敏）、`test/dependency-notices.test.js`、`test/session-schema.test.js`、`test/performance-sanity.test.js`。**待续**：文档补齐（README/安装/使用）、redaction 接入更多日志点。
+当前实现状态（2026-09-05，安全 + 依赖/许可证守卫 + schema 迁移守卫 + 性能基线 + 兼容矩阵已落地）：新增 **`SecretRedactor`**（redaction）：已接入 `OpenAICompatibleProvider.requireSuccess`（Provider 错误体脱敏）、`ChatRunCoordinator.safeMessage`（所有会话错误在浮出前 censor 常见密钥形态）、`chatViewProvider.reportSessionError`/`receiveMessage` 日志（`console.error` 前 censor）。新增 **依赖/许可证守卫** `test/dependency-notices.test.js`、**schema/迁移守卫** `test/session-schema.test.js`、**性能基线** `test/performance-sanity.test.js`、**兼容矩阵** `docs/18_COMPATIBILITY_MATRIX.md`。覆盖：`test/secret-redactor.test.js`、`test/openai-compatible-provider.test.js`（错误体脱敏）、`test/chat-run-coordinator.test.js`（错误信息 censor）、`test/dependency-notices.test.js`、`test/session-schema.test.js`、`test/performance-sanity.test.js`。**待续**：v1.0 交付项（VSIX 打包、安装/使用/维护/升级说明、最终 NOTICE+测试报告）需发布环境。
 
 ## v1.0 Delivery
 冻结 API/schema；交付 VSIX、安装/使用/维护/升级说明、第三方 NOTICE、测试报告。

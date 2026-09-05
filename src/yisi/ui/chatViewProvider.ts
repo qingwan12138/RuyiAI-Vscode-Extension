@@ -13,6 +13,9 @@ import type { PermissionMode } from '../domain/session';
 import type { ContextUsageState } from '../application/context/contextUsage';
 import type { ChatRunOutcome } from './chatRunCoordinator';
 import { ApprovalBroker } from '../application/agent/approvalBroker';
+import { createSecretRedactor } from '../application/security/secretRedactor';
+
+const redactor = createSecretRedactor();
 import {
   EditorSelectionTaskKind,
   buildSelectionTaskMessage
@@ -437,7 +440,7 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
    * session fallback, while still logging the real cause to the Output channel. */
   private reportSessionError(message: string, error: unknown): void {
     const diagnostic = error instanceof Error ? `${error.name}: ${error.message}` : 'Unknown session error';
-    console.error(`[Yisi AI] ${diagnostic}`);
+    console.error(`[Yisi AI] ${redactor.censor(diagnostic)}`);
     void this.view?.webview.postMessage({ type: 'sessionError', message });
   }
 
@@ -446,7 +449,7 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
       await this.handleMessage(parseWebviewMessage(value));
     } catch (error: unknown) {
       const diagnostic = error instanceof Error ? `${error.name}: ${error.message}` : 'Unknown session error';
-      console.error(`[Yisi AI] ${diagnostic}`);
+      console.error(`[Yisi AI] ${redactor.censor(diagnostic)}`);
       await this.view?.webview.postMessage({
         type: 'sessionError',
         message: 'Yisi AI could not complete that session action. Previously saved session data remains available.'

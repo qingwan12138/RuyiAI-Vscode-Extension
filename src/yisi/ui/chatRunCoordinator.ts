@@ -1,5 +1,8 @@
 import { ChatService, ExplicitFileContext } from '../application/chat/chatService';
 import { AgentToolEvent } from '../application/agent/readOnlyAgentLoop';
+import { createSecretRedactor } from '../application/security/secretRedactor';
+
+const redactor = createSecretRedactor();
 
 export type ChatRunEvent =
   | { type: 'assistantStreamStarted' }
@@ -112,5 +115,7 @@ export class ChatRunCoordinator {
 }
 
 function safeMessage(error: unknown): string {
-  return error instanceof Error ? error.message.slice(0, 240) : 'The provider request failed.';
+  const raw = error instanceof Error ? error.message.slice(0, 240) : 'The provider request failed.';
+  // Censor secret-shaped substrings before any error is surfaced to the user.
+  return redactor.censor(raw);
 }

@@ -85,6 +85,18 @@ test('guards overlapping runs through the outcome instead of an event', async ()
   await running;
 });
 
+test('a secret-shaped error message is censored before it is surfaced', async () => {
+  const events = [];
+  const coordinator = new ChatRunCoordinator(
+    { async send() { throw new Error('failed with api_key=supersecrettoken12345'); } },
+    event => events.push(event)
+  );
+  const outcome = await coordinator.start('hello');
+  assert.equal(outcome.status, 'error');
+  assert.equal(outcome.message.includes('supersecrettoken12345'), false, 'raw secret must not appear');
+  assert.match(outcome.message, /\[REDACTED\]/);
+});
+
 test('forwards only host-resolved explicit contexts to ChatService', async () => {
   let received;
   const context = {
