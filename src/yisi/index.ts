@@ -48,7 +48,9 @@ import { ContextUsageState, computeContextUsage, estimateTokens, CONTEXT_OVERHEA
 import { ModelWindowOverride, modelContextWindow } from './domain/modelContextWindow';
 import { NodeProcessRunner } from './infrastructure/process/nodeProcessRunner';
 import { NodeGitService } from './infrastructure/git/nodeGitService';
+import { NodeWorktreeManager } from './infrastructure/git/nodeWorktreeManager';
 import { GitStatusService, createGitStatusTool } from './application/git/gitStatusService';
+import { WorktreeManagerService, createGitWorktreeTool } from './application/git/worktreeManagerService';
 import { VsCodeToolConfirmation } from './vscode/agent/vsCodeToolConfirmation';
 import { VsCodeDiagnosticProvider } from './vscode/diagnostics/vsCodeDiagnosticProvider';
 import type { ProjectProfileSource } from './ui/chatViewProvider';
@@ -216,6 +218,7 @@ async function createAgentWorkspace(approvals: ApprovalBroker): Promise<AgentWor
   try {
     const fileSystem = await NodeWorkspaceFileSystem.create(workspace.fsPath);
     const git = new NodeGitService(new NodeProcessRunner());
+    const worktrees = new WorktreeManagerService(new NodeWorktreeManager(new NodeProcessRunner()), git);
     const diagnostics = new VsCodeDiagnosticProvider({
       getDiagnostics: () => vscode.languages.getDiagnostics(),
       getWorkspaceFolder: uri => vscode.workspace.getWorkspaceFolder(uri as vscode.Uri)
@@ -237,6 +240,7 @@ async function createAgentWorkspace(approvals: ApprovalBroker): Promise<AgentWor
       createUndoLastEditTool(edits),
       createRunCommandTool(commands),
       createGitStatusTool(new GitStatusService(git), workspace.fsPath),
+      createGitWorktreeTool(worktrees, workspace.fsPath),
       createInspectProjectTool(profileService),
       createRunValidationsTool(validationPlanner),
       createRuyiInspectTool(ruyiInspection),
