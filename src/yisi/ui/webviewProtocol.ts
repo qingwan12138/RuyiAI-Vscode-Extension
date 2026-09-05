@@ -32,6 +32,7 @@ export type HostMessage =
   | { type: 'runStopped' }
   | { type: 'continueRequested' }
   | { type: 'sessionError'; message: string }
+  | { type: 'stallNotice'; message: string }
   | { type: 'contextState'; contexts: unknown[] }
   | { type: 'modelControl.state'; state: ModelControlState }
   | { type: 'contextUsage'; usage: ContextUsageState | null }

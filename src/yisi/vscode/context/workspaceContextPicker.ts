@@ -28,6 +28,7 @@ const OPEN_FILTERS: Record<string, string[]> = {
 
 export class VsCodeWorkspaceContextPicker implements AttachmentContextPicker {
   private readonly fileSystems = new Map<string, Promise<NodeWorkspaceFileSystem>>();
+  private hasWarnedHeavy = false;
 
   constructor(private readonly attachments: AttachmentService) {}
 
@@ -63,6 +64,7 @@ export class VsCodeWorkspaceContextPicker implements AttachmentContextPicker {
       // type instead of a generic BIN.
       const kindHint = classifyByExtension(name)?.kind ?? 'unsupported';
       const isExternal = !folder || folder.uri.scheme !== 'file';
+      this.warnHeavyOnce(name);
 
       if (isExternal) {
         // A user explicitly picking a file outside the workspace is granting
@@ -147,6 +149,25 @@ export class VsCodeWorkspaceContextPicker implements AttachmentContextPicker {
     }
     return fileSystem;
   }
+
+  /**
+   * Binary/office formats (PDF, docx, xlsx, pptx) load a heavy extractor on
+   * first use; the first attach can stall the extension host for a second or
+   * two while that module graph is parsed. Set expectations up front instead of
+   * letting the user think the window froze. Warn once per session.
+   */
+  private warnHeavyOnce(name: string): void {
+    if (this.hasWarnedHeavy || !isHeavyKind(name)) return;
+    this.hasWarnedHeavy = true;
+    void vscode.window.showInformationMessage(
+      '首次解析大型文档（PDF / Word / 表格 / PPT）可能需要数秒，请稍候。'
+    );
+  }
+}
+
+function isHeavyKind(name: string): boolean {
+  const ext = path.extname(name).toLowerCase();
+  return ext === '.pdf' || ext === '.docx' || ext === '.xlsx' || ext === '.pptx';
 }
 
 function toPosix(value: string): string {

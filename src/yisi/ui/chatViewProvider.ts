@@ -93,6 +93,52 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
     await this.publishState();
   }
 
+  /**
+   * Soft resume: after a VS Code reload/interrupt that left a session running or
+   * interrupted, offer to re-run its last user message. Never restores a
+   * long-lived process automatically (per AGENTS.md) — this only re-sends the
+   * last prompt through the normal, permission-gated pipeline.
+   */
+  async resumeUnfinished(): Promise<void> {
+    const unfinished = this.sessions.listSessions().find(
+      summary => summary.status === 'running' || summary.status === 'interrupted'
+    );
+    if (!unfinished) return;
+    if (this.runs.isRunning()) {
+      await vscode.window.showInformationMessage('Yisi AI: 请先停止当前运行，再继续上次的任务。');
+      return;
+    }
+    if (this.sessions.getActiveSession().id !== unfinished.id) {
+      await this.sessions.switchSession(unfinished.id);
+    }
+    await this.publishState();
+    await this.resendLastMessage();
+  }
+
+  /** Re-run the last user message in the active session through runChat. */
+  async resendLastMessage(): Promise<void> {
+    if (this.runs.isRunning()) {
+      await vscode.window.showInformationMessage('Yisi AI: 请先停止当前运行。');
+      return;
+    }
+    const active = this.sessions.getActiveSession();
+    if (!active.model.providerId || !active.model.modelId) {
+      const action = await vscode.window.showInformationMessage(
+        'Yisi AI: 当前会话尚未选择模型，无法继续。',
+        '打开模型设置',
+        '取消'
+      );
+      if (action === '打开模型设置') await this.openModelSettings();
+      return;
+    }
+    const lastUser = [...active.items].reverse().find(item => item.type === 'userMessage');
+    if (!lastUser || typeof lastUser.text !== 'string' || !lastUser.text.trim()) {
+      await vscode.window.showInformationMessage('Yisi AI: 当前会话没有可重发的消息。');
+      return;
+    }
+    await this.runChat(lastUser.text);
+  }
+
   async openModelSettings(): Promise<void> {
     await this.providerSetup.run();
     await this.publishState();

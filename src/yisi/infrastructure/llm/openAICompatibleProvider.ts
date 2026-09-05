@@ -33,6 +33,10 @@ export interface OpenAICompatibleProviderOptions {
   reasoningEffort?: boolean;
   /** Explicit model-family override; otherwise the centralized registry decides. */
   vision?: boolean;
+  /** Retry a connect/network failure this many times before giving up. */
+  retries?: number;
+  /** Base delay before the first retry (doubles per attempt). */
+  retryBackoffMs?: number;
 }
 
 export class ProviderTransportError extends Error {
@@ -51,10 +55,14 @@ export class OpenAICompatibleProvider implements LLMProvider {
   readonly id: string;
   readonly imageInputTransport = true;
   private readonly fetchImpl: FetchImplementation;
+  private readonly retries: number;
+  private readonly retryBackoffMs: number;
 
   constructor(private readonly options: OpenAICompatibleProviderOptions) {
     this.id = options.id;
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.retries = options.retries ?? 1;
+    this.retryBackoffMs = options.retryBackoffMs ?? 1_500;
   }
 
   async testConnection(signal?: AbortSignal): Promise<void> {
@@ -91,7 +99,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
   }
 
   async *streamChat(request: ChatRequest, signal?: AbortSignal): AsyncIterable<ChatDelta> {
-    const response = await this.fetchImpl(this.endpoint('chat/completions'), {
+    const response = await this.fetchWithRetry(this.endpoint('chat/completions'), {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify({
@@ -101,7 +109,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         ...this.samplingBody(request)
       }),
       signal
-    });
+    }, signal);
     await this.requireSuccess(response);
     if (!response.body) {
       throw new ProviderTransportError('Provider stream has no response body.', response.status, requestId(response));
@@ -130,7 +138,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       type: 'function',
       function: parseAgentToolDefinition(definition)
     }));
-    const response = await this.fetchImpl(this.endpoint('chat/completions'), {
+    const response = await this.fetchWithRetry(this.endpoint('chat/completions'), {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify({
@@ -142,7 +150,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         ...this.samplingBody(request)
       }),
       signal
-    });
+    }, signal);
     await this.requireSuccess(response);
     if (!response.body) {
       throw new ProviderTransportError('Provider stream has no response body.', response.status, requestId(response));
@@ -196,6 +204,28 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
   private endpoint(path: string): string {
     return `${this.options.baseUrl.replace(/\/$/, '')}/${path}`;
+  }
+
+  /**
+   * Fetch with a bounded retry on connect/network failure (fetch rejects on
+   * transport errors). HTTP success/error statuses are NOT retried: they come
+   * back as a Response and are surfaced to the caller as provider errors. Tuned
+   * to be conservative: one retry with an exponential backoff, abortable.
+   */
+  private async fetchWithRetry(
+    input: string,
+    init: RequestInit,
+    signal?: AbortSignal
+  ): Promise<Response> {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.fetchImpl(input, { ...init, signal });
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        if (attempt >= this.retries || this.retries <= 0) throw error;
+        await abortableDelay(this.retryBackoffMs * 2 ** attempt, signal);
+      }
+    }
   }
 
   private headers(): Record<string, string> {
@@ -336,4 +366,26 @@ function requestId(response: Response): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Sleep that rejects with an AbortError as soon as the signal aborts. */
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      const error = new Error('The operation was aborted.');
+      error.name = 'AbortError';
+      reject(error);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    }, ms);
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
+    signal?.addEventListener('abort', abort, { once: true });
+  });
 }

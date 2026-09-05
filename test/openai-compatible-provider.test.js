@@ -295,3 +295,48 @@ test('emits multiple indexed calls and tolerates text+tool in one round, rejecti
     /too many tool calls/
   );
 });
+
+test('retries a network connect failure once with backoff, then succeeds', async () => {
+  let calls = 0;
+  const provider = new OpenAICompatibleProvider({
+    id: 'p', baseUrl: 'https://example.com/v1', retries: 1, retryBackoffMs: 5,
+    fetchImpl: async () => {
+      calls += 1;
+      if (calls === 1) throw new TypeError('fetch failed');
+      return sseResponse([
+        'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":null}]}\n\n',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n'
+      ]);
+    }
+  });
+
+  assert.equal(await collect(provider.streamChat({ model: 'm', messages: [] })), 'ok');
+  assert.equal(calls, 2);
+});
+
+test('aborting during the retry backoff rejects as AbortError instead of hanging', async () => {
+  const controller = new AbortController();
+  const provider = new OpenAICompatibleProvider({
+    id: 'p', baseUrl: 'https://example.com/v1', retries: 1, retryBackoffMs: 5_000,
+    fetchImpl: async () => { throw new TypeError('fetch failed'); }
+  });
+  const iterating = collectEvents(provider.streamAgent({ model: 'm', messages: [], tools: [] }, controller.signal));
+  setTimeout(() => controller.abort(), 10);
+  await assert.rejects(iterating, error => error && error.name === 'AbortError');
+});
+
+test('a provider HTTP error status is not retried as a network failure', async () => {
+  let calls = 0;
+  const provider = new OpenAICompatibleProvider({
+    id: 'p', baseUrl: 'https://example.com/v1', retries: 1, retryBackoffMs: 5,
+    fetchImpl: async () => {
+      calls += 1;
+      return new Response('{"error":"bad model"}', { status: 400 });
+    }
+  });
+  await assert.rejects(
+    async () => collect(provider.streamChat({ model: 'm', messages: [] })),
+    error => error instanceof ProviderTransportError && error.status === 400
+  );
+  assert.equal(calls, 1);
+});

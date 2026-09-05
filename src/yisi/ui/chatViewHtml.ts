@@ -1877,6 +1877,15 @@ ${permissionClientScript()}
       if (message.type === 'continueRequested') {
         status.textContent = 'Continue requested';
       }
+
+      if (message.type === 'stallNotice') {
+        // A soft, non-aborting hint: the run is still waiting, so the user can
+        // keep waiting or press Stop. It must not be cleared by the next delta
+        // until the run ends (assistantStreamCompleted / sessionError reset it).
+        if (typeof message.message === 'string' && message.message) {
+          status.textContent = message.message;
+        }
+      }
     });
 
     updateSendState();

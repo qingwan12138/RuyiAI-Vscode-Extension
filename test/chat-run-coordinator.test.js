@@ -123,3 +123,34 @@ test('forwards agent tool lifecycle events to the webview', async () => {
     { type: 'assistantStreamCompleted' }
   ]);
 });
+
+test('emits a stall notice (no abort) after a quiet run and recovers on a delta', async () => {
+  const events = [];
+  let onDeltaFn;
+  let finish;
+  const chat = {
+    async send(_text, onDelta) {
+      onDeltaFn = onDelta;
+      await new Promise(resolve => { finish = resolve; });
+    }
+  };
+  const coordinator = new ChatRunCoordinator(chat, event => events.push(event), { stallNoticeMs: 40, watchdogIntervalMs: 10 });
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+  const running = coordinator.start('quiet');
+
+  await sleep(80);
+  // The run is still alive (notice only, no abort) and the webview saw it.
+  assert.equal(coordinator.isRunning(), true);
+  assert.equal(events.some(event => event.type === 'stallNotice'), true);
+
+  // A real delta resets the stall state and the run completes normally.
+  onDeltaFn('finally');
+  await sleep(15);
+  assert.equal(events.some(event => event.type === 'assistantStreamDelta' && event.text === 'finally'), true);
+  finish();
+  const outcome = await running;
+
+  assert.deepEqual(outcome, { status: 'completed' });
+  assert.equal(coordinator.isRunning(), false);
+});

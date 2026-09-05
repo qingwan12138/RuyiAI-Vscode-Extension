@@ -172,8 +172,26 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
     vscode.commands.registerCommand('yisiAI.generateApiDocs', () => chatView.runProjectDocTask('apiDocs')),
     vscode.commands.registerCommand('yisiAI.showEditJournal', () => showEditJournal(agentWorkspace.edits)),
     vscode.commands.registerCommand('yisiAI.focus', () => revealYisiChat()),
+    vscode.commands.registerCommand('yisiAI.resume', () => chatView.resumeUnfinished()),
     yisiStatus
   );
+
+  // Soft resume prompt: if a session was left running/interrupted (e.g. VS Code
+  // reloaded mid-run), offer to re-run its last message instead of silently
+  // dropping it. Deferred so it never blocks activation.
+  setTimeout(() => {
+    const unfinished = sessions.listSessions().find(
+      summary => summary.status === 'running' || summary.status === 'interrupted'
+    );
+    if (!unfinished) return;
+    void vscode.window.showInformationMessage(
+      'Yisi AI: 检测到尚未完成的 Agent 运行，是否继续？',
+      '继续',
+      '忽略'
+    ).then(action => {
+      if (action === '继续') void chatView.resumeUnfinished();
+    });
+  }, 1_200);
 }
 
 /** Reveal the Yisi AI chat (status bar / editor-title entry points). */

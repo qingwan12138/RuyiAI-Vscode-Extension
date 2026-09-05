@@ -7,6 +7,7 @@ export type ChatRunEvent =
   | { type: 'assistantStreamCompleted' }
   | { type: 'runStopped' }
   | { type: 'sessionError'; message: string }
+  | { type: 'stallNotice'; message: string }
   | { type: 'agentToolCall'; id: string; name: string; input: unknown }
   | { type: 'agentToolResult'; id: string; name: string; outcome: 'succeeded' | 'failed'; summary: string };
 
@@ -22,13 +23,31 @@ export type ChatRunOutcome =
   | { status: 'stopped' }
   | { status: 'error'; message: string };
 
+export interface ChatRunCoordinatorOptions {
+  /** No delta for this long -> emit a notice (never abort) telling the user
+   * they can wait or stop. Default 90s. */
+  stallNoticeMs?: number;
+  /** How often the watchdog checks. Default 4s. */
+  watchdogIntervalMs?: number;
+}
+
+const DEFAULT_STALL_NOTICE_MS = 90_000;
+const DEFAULT_WATCHDOG_INTERVAL_MS = 4_000;
+const STALL_NOTICE_MESSAGE = '长时间未收到模型响应（90s）。可能是 Provider 连接/模型/网络问题；可以继续等待，或点 Stop 中止本次运行。';
+
 export class ChatRunCoordinator {
   private controller?: AbortController;
+  private readonly stallNoticeMs: number;
+  private readonly watchdogIntervalMs: number;
 
   constructor(
     private readonly chat: Pick<ChatService, 'send'>,
-    private readonly emit: (event: ChatRunEvent) => void
-  ) {}
+    private readonly emit: (event: ChatRunEvent) => void,
+    options: ChatRunCoordinatorOptions = {}
+  ) {
+    this.stallNoticeMs = options.stallNoticeMs ?? DEFAULT_STALL_NOTICE_MS;
+    this.watchdogIntervalMs = options.watchdogIntervalMs ?? DEFAULT_WATCHDOG_INTERVAL_MS;
+  }
 
   isRunning(): boolean {
     return this.controller !== undefined;
@@ -40,11 +59,24 @@ export class ChatRunCoordinator {
     }
     const controller = new AbortController();
     this.controller = controller;
+    let lastActivity = Date.now();
+    let stallNotified = false;
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastActivity >= this.stallNoticeMs && !stallNotified) {
+        stallNotified = true;
+        this.emit({ type: 'stallNotice', message: STALL_NOTICE_MESSAGE });
+      }
+    }, this.watchdogIntervalMs);
+
     this.emit({ type: 'assistantStreamStarted' });
     try {
       await this.chat.send(
         text,
-        delta => this.emit({ type: 'assistantStreamDelta', text: delta }),
+        delta => {
+          lastActivity = Date.now();
+          stallNotified = false;
+          this.emit({ type: 'assistantStreamDelta', text: delta });
+        },
         controller.signal,
         contexts,
         event => this.emitToolEvent(event)
@@ -58,6 +90,7 @@ export class ChatRunCoordinator {
       }
       return { status: 'error', message: safeMessage(error) };
     } finally {
+      clearInterval(watchdog);
       if (this.controller === controller) this.controller = undefined;
     }
   }
