@@ -35,6 +35,8 @@ DoD：失败测试可自动迭代修复；Stop 不损坏 session；无验证不�
 - multi-session process separation
 DoD：两个写 session 并行不直接修改同一 working tree；dirty worktree 删除保护。
 
+当前实现状态（2026-09-05，部分）：已实现 `GitPort`（domain）+ `NodeGitService`（infrastructure，经结构化 spawn/git porcelain 解析，`core.quotepath=false` 支持中文/空格路径、非 repo 不抛错）+ **`git_status` 工具**（readOnly，返回 repo/branch/clean/变更文件列表并封顶），并新增 **dirty worktree 删除保护**：`workspaceEditService` 在 delete/rename（及改写）前检查目标路径是否携带**已跟踪的未提交改动**（M/A/D/R/C），是则拒绝并提示 commit/stash；纯 untracked（agent 新建）文件保持可删；非 git 工作区跳过保护（LNX-016）。覆盖：`test/node-git-service.test.js`（porcelain 解析、真实 git repo 的 branch/dirty、非 repo 安全）、`test/workspace-edit-dirty-guard.test.js`（脏路径拒绝、untracked 放行、重命名拒绝、非 repo 放行）、`test/git-status-tool.test.js`（readOnly、封顶）。**仍在 v0.4 范围内/待续**：worktree 管理器 + 每写 session 隔离执行工作区（git worktree 创建/清理、会话删除时按用户选择清理、`.git/worktrees` 内部 metadata 不直接改）、多会话进程分离，以及真实 Linux LNX-015 worktree 隔离 smoke test。
+
 ## v0.5 Ruyi Typed Tools
 - RuyiPort/porcelain parser/package/profile/venv/update/extract 等
 - Ruyi operation UI + permission risk

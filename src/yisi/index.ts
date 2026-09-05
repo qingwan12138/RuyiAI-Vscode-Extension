@@ -47,6 +47,8 @@ import { EditJournalViewer } from './vscode/editJournalViewer';
 import { ContextUsageState, computeContextUsage, estimateTokens, CONTEXT_OVERHEAD_TOKENS } from './application/context/contextUsage';
 import { ModelWindowOverride, modelContextWindow } from './domain/modelContextWindow';
 import { NodeProcessRunner } from './infrastructure/process/nodeProcessRunner';
+import { NodeGitService } from './infrastructure/git/nodeGitService';
+import { GitStatusService, createGitStatusTool } from './application/git/gitStatusService';
 import { VsCodeToolConfirmation } from './vscode/agent/vsCodeToolConfirmation';
 import { VsCodeDiagnosticProvider } from './vscode/diagnostics/vsCodeDiagnosticProvider';
 import type { ProjectProfileSource } from './ui/chatViewProvider';
@@ -213,11 +215,12 @@ async function createAgentWorkspace(approvals: ApprovalBroker): Promise<AgentWor
   if (!workspace) return {};
   try {
     const fileSystem = await NodeWorkspaceFileSystem.create(workspace.fsPath);
+    const git = new NodeGitService(new NodeProcessRunner());
     const diagnostics = new VsCodeDiagnosticProvider({
       getDiagnostics: () => vscode.languages.getDiagnostics(),
       getWorkspaceFolder: uri => vscode.workspace.getWorkspaceFolder(uri as vscode.Uri)
     }, [workspace.uri], 50);
-    const edits = new WorkspaceEditService(fileSystem, diagnostics, fileSystem);
+    const edits = new WorkspaceEditService(fileSystem, diagnostics, fileSystem, git, workspace.fsPath);
     const commands = new CommandExecutionService(new NodeProcessRunner(), workspace.fsPath);
     const profileService = new ProjectProfileService(fileSystem);
     const validationPlanner = new ValidationPlannerService(commands, profileService);
@@ -233,6 +236,7 @@ async function createAgentWorkspace(approvals: ApprovalBroker): Promise<AgentWor
       createWorkspaceDirectoryTool(edits),
       createUndoLastEditTool(edits),
       createRunCommandTool(commands),
+      createGitStatusTool(new GitStatusService(git), workspace.fsPath),
       createInspectProjectTool(profileService),
       createRunValidationsTool(validationPlanner),
       createRuyiInspectTool(ruyiInspection),

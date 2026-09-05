@@ -1,5 +1,6 @@
 import { YisiTool } from '../../domain/tool';
 import { randomUUID } from 'node:crypto';
+import { GitPort, isDirtyGitEntry } from '../../domain/gitPort';
 import {
   FileSystemPort,
   WorkspaceDirectoryCreation,
@@ -80,8 +81,29 @@ export class WorkspaceEditService {
   constructor(
     private readonly files: WorkspaceWritePort,
     private readonly diagnostics?: DiagnosticProvider,
-    private readonly reads?: FileSystemPort
+    private readonly reads?: FileSystemPort,
+    private readonly git?: GitPort,
+    private readonly workspaceRoot?: string
   ) {}
+
+  /**
+   * Dirty-worktree delete/overwrite protection (docs/16 §14): refuse to delete
+   * or rename a path that carries a tracked uncommitted change (modified,
+   * staged, deleted, renamed, or added). Pure untracked files (the agent's own
+   * new files) stay deletable. Non-repositories skip the guard entirely.
+   */
+  private async assertNotDirty(relPath: string, signal: AbortSignal): Promise<void> {
+    if (!this.git || !this.workspaceRoot) return;
+    const status = await this.git.status(this.workspaceRoot, signal);
+    if (!status.isRepo) return;
+    const rel = toPosix(relPath);
+    const entry = status.entries.find(item => toPosix(item.path) === rel);
+    if (entry && isDirtyGitEntry(entry)) {
+      throw new WorkspaceEditInputError(
+        `Refusing to mutate "${relPath}": it has uncommitted changes. Commit, stash, or restore it first.`
+      );
+    }
+  }
 
   async replaceText(input: unknown, signal: AbortSignal): Promise<WorkspaceEditToolResult> {
     const replacement = parseReplacement(input);
@@ -127,6 +149,7 @@ export class WorkspaceEditService {
 
   async deleteFile(input: unknown, signal: AbortSignal): Promise<WorkspaceMutationToolResult<WorkspaceFileDeletionResult>> {
     const deletion = parseDeletion(input);
+    await this.assertNotDirty(deletion.path, signal);
     const before = await this.captureBefore(deletion.path, signal);
     const edit = await this.files.deleteFile(deletion, signal);
     this.agentCreatedFiles.delete(edit.path);
@@ -139,6 +162,7 @@ export class WorkspaceEditService {
 
   async renameFile(input: unknown, signal: AbortSignal): Promise<WorkspaceMutationToolResult<WorkspaceFileRenameResult>> {
     const rename = parseRename(input);
+    await this.assertNotDirty(rename.fromPath, signal);
     const edit = await this.files.renameFile(rename, signal);
     if (this.agentCreatedFiles.has(edit.fromPath)) {
       this.agentCreatedFiles.delete(edit.fromPath);
@@ -599,6 +623,10 @@ function isExactRecord(value: unknown, keys: string[]): value is Record<string, 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function toPosix(value: string): string {
+  return value.replace(/\\/g, '/');
 }
 
 function randomJournalId(): string {
