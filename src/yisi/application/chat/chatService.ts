@@ -42,7 +42,8 @@ export class ChatService {
     private readonly agentRunner?: AgentConversationRunner,
     private readonly identityQuestions?: () => IdentityQuestionPolicy,
     private readonly rehydrator?: AttachmentRehydrator,
-    private readonly sessionRunner?: (session: { sessionId: string; mode: PermissionMode }) => Promise<AgentConversationRunner | undefined>
+    private readonly sessionRunner?: (session: { sessionId: string; mode: PermissionMode }) => Promise<AgentConversationRunner | undefined>,
+    private readonly historyBudgetRatio = 0.6
   ) {}
 
   async send(
@@ -95,7 +96,9 @@ export class ChatService {
         if (windowTokens && windowTokens > 0 && messages.length > 1) {
           const last = messages[messages.length - 1];
           const currentTokens = estimateTokens(typeof last.content === 'string' ? last.content : '');
-          const historyBudget = windowTokens - CONTEXT_OVERHEAD_TOKENS - currentTokens;
+          // Cost/context control (v0.7): only a fraction of the window is used
+          // for history, leaving room for the reply and future turns.
+          const historyBudget = Math.floor(windowTokens * this.historyBudgetRatio) - CONTEXT_OVERHEAD_TOKENS - currentTokens;
           if (historyBudget > 0) {
             const history: CompactableMessage[] = messages.slice(0, -1).map(message => ({
               role: message.role,

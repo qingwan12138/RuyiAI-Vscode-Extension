@@ -308,3 +308,32 @@ test('compacts a long history when the provider declares a context window (v0.7 
   // The history is compacted to a bounded tail (well under the 13 raw turns).
   assert.ok(capture.request.messages.length < 13, 'history messages were compacted');
 });
+
+test('history budget ratio controls how aggressively history is retained (cost/context control)', async () => {
+  const run = async ratio => {
+    const repository = new MemoryRepository();
+    let id = 0;
+    const sessions = new SessionService(repository, { now: () => ++id, createId: () => `id-${++id}` });
+    await sessions.initialize('workspace', []);
+    await sessions.setModelSelection({ providerId: 'provider', modelId: 'model' });
+    const capture = {};
+    const provider = {
+      id: 'provider',
+      async capabilities() { return { streaming: true, maxContextTokens: 60_000 }; },
+      async *streamChat(request) { capture.request = request; yield { text: 'ok' }; }
+    };
+    const chat = new ChatService(sessions, { resolve: async () => provider }, undefined, undefined, undefined, undefined, ratio);
+    for (let index = 0; index < 10; index += 1) {
+      await sessions.appendUserMessage('u'.repeat(1_200), []);
+      await sessions.appendAssistantMessage('a'.repeat(1_200), 'provider');
+    }
+    await chat.send('now', () => {}, new AbortController().signal);
+    return capture.request.messages;
+  };
+
+  const low = await run(0.1);
+  const high = await run(0.9);
+  assert.ok(low.length < high.length, 'a smaller history budget retains less history');
+  assert.equal(low[0].role, 'system');
+  assert.notEqual(high[0].role, 'system', 'no compaction note when the window comfortably fits the history');
+});
