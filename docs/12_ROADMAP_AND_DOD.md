@@ -68,7 +68,7 @@ DoD：原 RuyiSDK regression + Yisi regression 全过；集成 diff 集中在 se
 ## v0.9 RC
 性能、安全、许可证、依赖、迁移、日志 redaction、文档、兼容矩阵。
 
-当前实现状态（2026-09-05，安全 + 依赖/许可证守卫 + schema 迁移守卫已落地）：新增 **`SecretRedactor`**（application/security）：按精确密钥值替换 + 常见形态统一转为 `[REDACTED]`；已接入 `OpenAICompatibleProvider.requireSuccess`，Provider 错误消息永不回显 API key。新增 **依赖/许可证守卫** `test/dependency-notices.test.js`（每个运行时依赖须登记在 `THIRD_PARTY_NOTICES.md`，拦截未审核 native addon）。新增 **schema/迁移守卫** `test/session-schema.test.js`：`parseSessionDocument` 接受合法 v1 文档并 round-trip、**拒绝未来/未知 schemaVersion**（迁移守卫）、拒绝畸形结构与 active-session 不匹配、空文档合法——保证不兼容的持久化状态绝不静默按 v1 加载。覆盖：`test/secret-redactor.test.js`、`test/openai-compatible-provider.test.js`（错误体脱敏）、`test/dependency-notices.test.js`、`test/session-schema.test.js`。**待续**：性能基线、兼容矩阵、文档补齐、redaction 接入更多日志点。
+当前实现状态（2026-09-05，安全 + 依赖/许可证守卫 + schema 迁移守卫 + 性能基线 + 兼容矩阵已落地）：新增 **`SecretRedactor`**（redaction，已接入 `OpenAICompatibleProvider.requireSuccess`）、**依赖/许可证守卫** `test/dependency-notices.test.js`（运行时依赖须登记 NOTICES、拦截 native addon）、**schema/迁移守卫** `test/session-schema.test.js`（合法 v1 round-trip、拒绝未来 schemaVersion、非法结构拒绝）、**性能基线** `test/performance-sanity.test.js`（estimateTokens/compactHistory/porcelain 解析在病理输入下保持有界快速）、**兼容矩阵** `docs/18_COMPATIBILITY_MATRIX.md`（engines/OS/依赖/编译/测试矩阵 + 环境依赖验收清单）。覆盖：`test/secret-redactor.test.js`、`test/openai-compatible-provider.test.js`（错误体脱敏）、`test/dependency-notices.test.js`、`test/session-schema.test.js`、`test/performance-sanity.test.js`。**待续**：文档补齐（README/安装/使用）、redaction 接入更多日志点。
 
 ## v1.0 Delivery
 冻结 API/schema；交付 VSIX、安装/使用/维护/升级说明、第三方 NOTICE、测试报告。
