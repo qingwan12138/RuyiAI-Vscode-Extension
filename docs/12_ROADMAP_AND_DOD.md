@@ -27,6 +27,8 @@ DoD：fixture repo 可完成“定位 → 修改 proposal → 用户批准 → �
 - validation planner + loop guard + Stop/Continue
 DoD：失败测试可自动迭代修复；Stop 不损坏 session；无验证不声称成功。
 
+当前实现状态（2026-09-05，达成）：edit/create/delete/rename/mkdir/rewrite 均由 `WorkspaceEditService` 提供，写入要求 read 返回的 SHA-256 与唯一匹配、原子同目录发布，并带 stale guard 与"仅 agent-created"重写门；`undo_last_edit` + Edit Journal 查看器、`renderTextDiff`。批准前在侧栏卡片内渲染统一 diff（replace/rewrite/create），Approve/拒绝回传。权限模式 acceptEdits / auto / fullAccess 由 `PermissionEngine` 统一分类（acceptEdits/auto 允许 workspace 写、确认 processExec；fullAccess 仅对 destructive/credentialSensitive 保留确认），并经 `test/permission-engine.test.js` 覆盖。ValidationPlanner（`run_validations`，按探测选择命令并回喂证据）+ loop guard（maxRounds/maxCallsPerRound/重复调用/空输出/混合/预算）+ `Stop`/`Continue`、会话 `interrupted` 状态（`chat-service.test.js` 验证中止后不损坏、可恢复）。**v0.3 DoD 验证证据**：新增 `test/agent-loop-fix-iteration.e2e.test.js` + fixture `test/fixtures/agent-loop-fix-demo/`（multiply 故意写成 `a + b`），用真实 `node calc.test.mjs` 证明"**失败测试自动迭代修复**"：read → 首次验证 FAIL（exit≠0）→ 依据 sha 修复 → 再次验证 PASS（exit 0）→ 总结；全程真实工具+真实进程。同时把既有 `agent-loop-e2e.test.js` 的验证也改为直接 `node calc.test.mjs`（避免在 node:test 内嵌套 `--test` 触发"skipping running files"造成假 exit 0）。Stop 不损坏、无验证不声称成功均以此 e2e + 既有测试作为证据。
+
 ## v0.4 Git / Parallel Sessions
 - git status/diff
 - worktree manager + isolated execution workspace

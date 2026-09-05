@@ -48,7 +48,7 @@ function manualFixProvider(trace) {
       }
       if (last.name === 'replace_text' && parsed && parsed.ok) {
         trace.push('run_command');
-        yield { type: 'toolCall', call: { id: 'c3', name: 'run_command', input: { executable: 'node', args: ['--test', 'calc.test.mjs'] } } };
+        yield { type: 'toolCall', call: { id: 'c3', name: 'run_command', input: { executable: 'node', args: ['calc.test.mjs'] } } };
         return;
       }
       if (last.name === 'run_command' && parsed && parsed.ok && parsed.result.status === 'exited' && parsed.result.exitCode === 0) {
@@ -139,11 +139,11 @@ test('v0.2 DoD: locate -> propose -> approve (Manual) -> validate on a real fixt
 
   // Validation evidence: run the actual test now — it must exit 0.
   const verify = await new NodeProcessRunner().run(
-    { executable: 'node', args: ['--test', 'calc.test.mjs'], cwd: FIXTURE },
+    { executable: 'node', args: ['calc.test.mjs'], cwd: FIXTURE },
     new AbortController().signal
   );
   assert.equal(verify.status, 'exited');
-  assert.equal(verify.exitCode, 0, `node --test should pass: ${verify.stdout.text + verify.stderr.text}`);
+  assert.equal(verify.exitCode, 0, `node calc.test.mjs should pass: ${verify.stdout.text + verify.stderr.text}`);
 });
 
 test('v0.2 PermissionEngine: Plan mode denies a workspace write before executing it', async () => {
