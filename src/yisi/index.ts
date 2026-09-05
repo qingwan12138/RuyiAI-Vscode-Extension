@@ -22,6 +22,7 @@ import { createDefaultAttachmentRegistry } from './infrastructure/attachment/def
 import { selectLocalAgentWorkspace } from './vscode/context/localAgentWorkspace';
 import { NodeWorkspaceFileSystem } from './infrastructure/context/nodeWorkspaceFileSystem';
 import { WorkspaceContextService, createWorkspaceContextTools } from './application/context/workspaceContextService';
+import { RepoIndexService, createRepoIndexTool } from './application/context/repoIndexService';
 import { ToolRegistry } from './application/agent/toolRegistry';
 import { PermissionEngine } from './permissions/permissionEngine';
 import { AgentChatRunner } from './application/agent/agentChatRunner';
@@ -259,6 +260,7 @@ async function buildAgentRunner(
   const symbols = new SymbolLookupService(root, new VsCodeDocumentSymbolProvider());
   const tools = [
     ...createWorkspaceContextTools(new WorkspaceContextService(fileSystem)),
+    createRepoIndexTool(new RepoIndexService(fileSystem)),
     createWorkspaceEditTool(edits),
     createWorkspaceFileTool(edits),
     createWorkspaceRewriteTool(edits),
