@@ -8,11 +8,18 @@
  * This lives in the application layer: it holds only a post callback port, so
  * neither this module nor the agent loop depends on vscode or the webview.
  */
+export interface ApprovalDiffLine {
+  kind: 'add' | 'del' | 'ctx';
+  text: string;
+}
+
 export interface ToolApprovalRequestMessage {
   type: 'toolApprovalRequest';
   requestId: string;
   message: string;
   detail: string;
+  /** Optional unified-diff lines so the user sees exactly what will change. */
+  diff?: ApprovalDiffLine[];
 }
 
 export class ApprovalBroker {
@@ -43,7 +50,8 @@ export class ApprovalBroker {
     requestId: string,
     message: string,
     detail: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    diff?: ApprovalDiffLine[]
   ): Promise<boolean> {
     if (!this.attached) {
       return Promise.resolve(false);
@@ -57,7 +65,7 @@ export class ApprovalBroker {
         resolve(approved);
       };
       this.pending.set(requestId, settle);
-      this.post({ type: 'toolApprovalRequest', requestId, message, detail });
+      this.post({ type: 'toolApprovalRequest', requestId, message, detail, ...(diff ? { diff } : {}) });
       if (signal) {
         if (signal.aborted) settle(false);
         else signal.addEventListener('abort', () => settle(false), { once: true });

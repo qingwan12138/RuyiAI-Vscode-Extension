@@ -22,6 +22,11 @@ export interface AgentToolExecutionEvidence {
   truncated: boolean;
 }
 
+/** Live tool activity surfaced to the UI so the user sees what the agent did. */
+export type AgentToolEvent =
+  | { type: 'toolCall'; id: string; name: string; input: Record<string, unknown> }
+  | { type: 'toolResult'; id: string; name: string; outcome: 'succeeded' | 'failed'; truncated: boolean; summary: string };
+
 export interface AgentLoopResult {
   status: 'completed' | 'blocked';
   finalText: string;
@@ -79,7 +84,8 @@ export class AgentToolLoop {
     context: ToolExecutionContext,
     mode: PermissionMode,
     onDelta: (text: string) => void,
-    signal: AbortSignal
+    signal: AbortSignal,
+    onToolEvent?: (event: AgentToolEvent) => void
   ): Promise<AgentLoopResult> {
     const messages = structuredClone(request.messages);
     const executions: AgentToolExecutionEvidence[] = [];
@@ -174,6 +180,7 @@ export class AgentToolLoop {
         let content: string;
         let truncated = false;
         let outcome: AgentToolExecutionEvidence['outcome'] = 'succeeded';
+        onToolEvent?.({ type: 'toolCall', id: call.id, name: call.name, input: structuredClone(call.input) });
         try {
           const result = await tool.execute(call.input, { ...context, signal });
           if (signal.aborted) {
@@ -200,6 +207,14 @@ export class AgentToolLoop {
           });
         }
         executions.push({ callId: call.id, toolId: call.name, outcome, truncated });
+        onToolEvent?.({
+          type: 'toolResult',
+          id: call.id,
+          name: call.name,
+          outcome,
+          truncated,
+          summary: bounded(content, 600)
+        });
         toolMessages.push({ role: 'tool', toolCallId: call.id, name: call.name, content });
       }
       messages.push({ role: 'assistant', content: assistantText, toolCalls: structuredClone(toolCalls) }, ...toolMessages);

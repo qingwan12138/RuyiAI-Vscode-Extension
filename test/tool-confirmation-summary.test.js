@@ -70,3 +70,24 @@ test('unknown future gated tools fall back to a generic but actionable summary',
   assert.match(summary.message, /future_experimental_tool/);
   assert.match(summary.detail, /alpha/);
 });
+
+test('replace and rewrite approvals carry a unified diff preview', () => {
+  const replace = summarizeToolConfirmation({
+    callId: 'c-diff', toolId: 'replace_text',
+    input: { path: 'a.js', expectedSha256: 'a'.repeat(64), oldText: 'return a + b;', newText: 'return a * b;' },
+    reason: 'Manual approval required.'
+  });
+  assert.equal(replace.diff.length, 2);
+  assert.equal(replace.diff[0].kind, 'del');
+  assert.equal(replace.diff[0].text, 'return a + b;');
+  assert.equal(replace.diff[1].kind, 'add');
+  assert.equal(replace.diff[1].text, 'return a * b;');
+
+  const rewrite = summarizeToolConfirmation({
+    callId: 'c-rewrite-diff', toolId: 'rewrite_text_file',
+    input: { path: 'a.js', expectedSha256: 'a'.repeat(64), content: 'line1\nline2' },
+    reason: 'Manual approval required.'
+  });
+  assert.equal(rewrite.diff.length, 2);
+  assert.ok(rewrite.diff.every(line => line.kind === 'add'));
+});

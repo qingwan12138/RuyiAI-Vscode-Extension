@@ -1,7 +1,7 @@
 import { PermissionMode } from '../../domain/session';
 import { AgentRequest, AgentStreamEvent } from '../../llm/types';
 import { PermissionEngine } from '../../permissions/permissionEngine';
-import { AgentLoopRequest, AgentToolLoop, ToolConfirmationPort } from './readOnlyAgentLoop';
+import { AgentLoopRequest, AgentToolEvent, AgentToolLoop, ToolConfirmationPort } from './readOnlyAgentLoop';
 import { ToolRegistry } from './toolRegistry';
 
 export class AgentCapabilityError extends Error {
@@ -40,7 +40,8 @@ export class AgentChatRunner {
     request: AgentLoopRequest,
     session: AgentChatSessionContext,
     onDelta: (text: string) => void,
-    signal: AbortSignal
+    signal: AbortSignal,
+    onToolEvent?: (event: AgentToolEvent) => void
   ): Promise<string> {
     if (!provider.streamAgent) throw new AgentCapabilityError();
     const loop = new AgentToolLoop(
@@ -54,7 +55,7 @@ export class AgentChatRunner {
       sessionId: session.sessionId,
       workspaceUri: this.workspaceUri,
       signal
-    }, session.mode, onDelta, signal);
+    }, session.mode, onDelta, signal, onToolEvent);
     if (result.status === 'blocked') {
       throw new AgentLoopBlockedError(result.reason ?? 'Agent loop blocked without a reason.');
     }

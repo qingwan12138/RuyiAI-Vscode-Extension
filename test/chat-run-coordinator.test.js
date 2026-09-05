@@ -100,3 +100,26 @@ test('forwards only host-resolved explicit contexts to ChatService', async () =>
   assert.deepEqual(received, [context]);
   assert.deepEqual(outcome, { status: 'completed' });
 });
+
+test('forwards agent tool lifecycle events to the webview', async () => {
+  const events = [];
+  const chat = {
+    async send(_text, _onDelta, _signal, _contexts, onToolEvent) {
+      if (onToolEvent) {
+        onToolEvent({ type: 'toolCall', id: 'c1', name: 'read_file', input: { path: 'src/a.ts' } });
+        onToolEvent({ type: 'toolResult', id: 'c1', name: 'read_file', outcome: 'succeeded', truncated: false, summary: '{"ok":true,"result":{"text":"export const value = 1;"}}' });
+      }
+    }
+  };
+  const coordinator = new ChatRunCoordinator(chat, event => events.push(event));
+
+  const outcome = await coordinator.start('inspect');
+
+  assert.deepEqual(outcome, { status: 'completed' });
+  assert.deepEqual(events, [
+    { type: 'assistantStreamStarted' },
+    { type: 'agentToolCall', id: 'c1', name: 'read_file', input: { path: 'src/a.ts' } },
+    { type: 'agentToolResult', id: 'c1', name: 'read_file', outcome: 'succeeded', summary: '{"ok":true,"result":{"text":"export const value = 1;"}}' },
+    { type: 'assistantStreamCompleted' }
+  ]);
+});

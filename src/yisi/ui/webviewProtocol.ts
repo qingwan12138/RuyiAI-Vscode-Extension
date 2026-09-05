@@ -1,6 +1,7 @@
 import type { ModelControlState } from '../application/modelControl/modelControlService';
 import type { PermissionMode } from '../domain/session';
 import type { ContextUsageState } from '../application/context/contextUsage';
+import type { ApprovalDiffLine } from '../application/agent/approvalBroker';
 
 export type WebviewMessage =
   | { type: 'ready' }
@@ -34,7 +35,9 @@ export type HostMessage =
   | { type: 'contextState'; contexts: unknown[] }
   | { type: 'modelControl.state'; state: ModelControlState }
   | { type: 'contextUsage'; usage: ContextUsageState | null }
-  | { type: 'toolApprovalRequest'; requestId: string; message: string; detail: string };
+  | { type: 'toolApprovalRequest'; requestId: string; message: string; detail: string; diff?: ApprovalDiffLine[] }
+  | { type: 'agentToolCall'; id: string; name: string; input: unknown }
+  | { type: 'agentToolResult'; id: string; name: string; outcome: 'succeeded' | 'failed'; summary: string };
 
 export class WebviewProtocolError extends Error {
   constructor() {

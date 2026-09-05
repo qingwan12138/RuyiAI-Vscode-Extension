@@ -6,6 +6,7 @@ import { AttachmentContext, AttachmentImagePayload } from '../../context/attachm
 import { AttachmentRehydrator } from '../attachment/attachmentService';
 import { IdentityQuestionPolicy, isIdentityQuestion } from './identityQuestion';
 import { assembleAttachmentContexts, computeAttachmentBudget } from './attachmentPrompt';
+import { AgentToolEvent } from '../agent/readOnlyAgentLoop';
 
 export interface AgentConversationRunner {
   run(
@@ -13,7 +14,8 @@ export interface AgentConversationRunner {
     request: { model: string; messages: AgentConversationMessage[] },
     session: { sessionId: string; mode: PermissionMode },
     onDelta: (text: string) => void,
-    signal: AbortSignal
+    signal: AbortSignal,
+    onToolEvent?: (event: AgentToolEvent) => void
   ): Promise<string>;
 }
 
@@ -44,7 +46,8 @@ export class ChatService {
     text: string,
     onDelta: (text: string) => void,
     signal: AbortSignal,
-    contexts: ExplicitFileContext[] = []
+    contexts: ExplicitFileContext[] = [],
+    onToolEvent?: (event: AgentToolEvent) => void
   ): Promise<void> {
     if (this.running) throw new ChatRunInProgressError();
     this.running = true;
@@ -91,7 +94,8 @@ export class ChatService {
             { model: selected.modelId, messages, ...sampling },
             { sessionId: active.id, mode: active.permissionMode },
             onDelta,
-            signal
+            signal,
+            onToolEvent
           );
         } else {
           response = await streamChatText(provider, selected.modelId, messages, sampling, onDelta, signal);

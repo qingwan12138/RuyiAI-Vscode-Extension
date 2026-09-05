@@ -1,11 +1,14 @@
 import { ChatService, ExplicitFileContext } from '../application/chat/chatService';
+import { AgentToolEvent } from '../application/agent/readOnlyAgentLoop';
 
 export type ChatRunEvent =
   | { type: 'assistantStreamStarted' }
   | { type: 'assistantStreamDelta'; text: string }
   | { type: 'assistantStreamCompleted' }
   | { type: 'runStopped' }
-  | { type: 'sessionError'; message: string };
+  | { type: 'sessionError'; message: string }
+  | { type: 'agentToolCall'; id: string; name: string; input: unknown }
+  | { type: 'agentToolResult'; id: string; name: string; outcome: 'succeeded' | 'failed'; summary: string };
 
 /**
  * Terminal result of a coordinator run. The coordinator keeps emitting live
@@ -43,7 +46,8 @@ export class ChatRunCoordinator {
         text,
         delta => this.emit({ type: 'assistantStreamDelta', text: delta }),
         controller.signal,
-        contexts
+        contexts,
+        event => this.emitToolEvent(event)
       );
       this.emit({ type: 'assistantStreamCompleted' });
       return { status: 'completed' };
@@ -62,6 +66,15 @@ export class ChatRunCoordinator {
     if (!this.controller) return false;
     this.controller.abort();
     return true;
+  }
+
+  /** Mirror an agent tool lifecycle event to the webview as its own message. */
+  private emitToolEvent(event: AgentToolEvent): void {
+    if (event.type === 'toolCall') {
+      this.emit({ type: 'agentToolCall', id: event.id, name: event.name, input: event.input });
+    } else {
+      this.emit({ type: 'agentToolResult', id: event.id, name: event.name, outcome: event.outcome, summary: event.summary });
+    }
   }
 }
 

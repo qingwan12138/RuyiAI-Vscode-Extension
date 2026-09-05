@@ -294,6 +294,49 @@ test('accepts a round that mixes text and a tool call: streams the preamble, kee
   assert.equal(assistant.toolCalls[0].name, 'read_file');
 });
 
+test('emits toolCall then toolResult via onToolEvent for every executed tool', async () => {
+  const events = [];
+  const signal = new AbortController().signal;
+  const registry = new ToolRegistry([tool('read_file', async (input) => ({ path: input.path, text: 'content' }))]);
+  const loop = new ReadOnlyAgentLoop(
+    provider([
+      [call('c1', 'read_file', { path: 'src/a.ts' })],
+      [text('done')]
+    ], []),
+    registry,
+    new PermissionEngine()
+  );
+
+  const result = await loop.run(request, context(signal), 'manual', () => {}, signal, event => events.push(event));
+
+  assert.equal(result.status, 'completed');
+  assert.equal(events.length, 2);
+  assert.equal(events[0].type, 'toolCall');
+  assert.equal(events[0].name, 'read_file');
+  assert.deepEqual(events[0].input, { path: 'src/a.ts' });
+  assert.equal(events[1].type, 'toolResult');
+  assert.equal(events[1].outcome, 'succeeded');
+  assert.match(events[1].summary, /content/);
+});
+
+test('emits a failed toolResult when the tool throws', async () => {
+  const events = [];
+  const signal = new AbortController().signal;
+  const registry = new ToolRegistry([tool('read_file', async () => { throw new Error('boom'); })]);
+  const loop = new ReadOnlyAgentLoop(
+    provider([[call('c1', 'read_file', { path: 'a' })], [text('done')]], []),
+    registry,
+    new PermissionEngine()
+  );
+
+  const result = await loop.run(request, context(signal), 'manual', () => {}, signal, event => events.push(event));
+
+  assert.equal(result.status, 'completed');
+  assert.equal(events[1].type, 'toolResult');
+  assert.equal(events[1].outcome, 'failed');
+  assert.match(events[1].summary, /boom/);
+});
+
 test('forwards cancellation without converting it into a successful result', async () => {
   const controller = new AbortController();
   const cancellingProvider = {

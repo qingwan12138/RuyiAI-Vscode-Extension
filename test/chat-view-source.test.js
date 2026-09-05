@@ -49,11 +49,25 @@ test('privileged tool approvals render as a sidebar card, not a window modal', (
   assert.match(source, /approval-card/);
   assert.match(source, /approval-button approve/);
   assert.match(source, /clearApprovals/);
+  // A unified diff preview is rendered inside the approval card.
+  assert.match(source, /renderApprovalDiff/);
+  assert.match(source, /approval-diff-line/);
+  assert.match(source, /request\.diff/);
   // The host resolves the webview's answer back into the approval broker.
   assert.match(provider, /ApprovalBroker/);
   assert.match(provider, /approvals\.resolve/);
   assert.match(provider, /attachPost/);
   assert.match(provider, /approvals\.cancelAll/);
+});
+
+test('agent tool activity is shown as step bubbles between the model text segments', () => {
+  assert.match(source, /agentToolCall/);
+  assert.match(source, /agentToolResult/);
+  assert.match(source, /appendToolNode/);
+  assert.match(source, /setToolResult/);
+  assert.match(source, /function finalizeTextBubble/);
+  assert.match(source, /message\.tool/);
+  assert.match(source, /tool-result\.ok/);
 });
 
 test('host surfaces run errors only after re-publishing session state', () => {

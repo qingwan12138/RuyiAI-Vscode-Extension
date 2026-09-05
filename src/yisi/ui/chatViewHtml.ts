@@ -426,6 +426,30 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       background: var(--yisi-surface);
     }
 
+    .message.tool {
+      margin: 0 0 10px 22px;
+      border: 1px solid var(--yisi-border);
+      background: var(--yisi-surface);
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 11px;
+    }
+    .tool-header {
+      font-weight: 600;
+      color: var(--vscode-descriptionForeground);
+      margin-bottom: 4px;
+    }
+    .tool-input {
+      color: var(--yisi-muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      margin-bottom: 4px;
+    }
+    .tool-result { white-space: pre-wrap; word-break: break-word; }
+    .tool-result.pending { color: var(--yisi-muted); }
+    .tool-result.ok { color: var(--vscode-gitDecoration-addedResourceForeground); }
+    .tool-result.fail { color: var(--vscode-gitDecoration-deletedResourceForeground); }
+
     .message.streaming::after {
       content: '▋';
       margin-left: 2px;
@@ -640,6 +664,29 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       max-height: 120px;
       overflow: auto;
     }
+    .approval-diff {
+      margin: 0 0 8px;
+      border: 1px solid var(--yisi-border);
+      border-radius: 5px;
+      overflow: hidden;
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 11px;
+      max-height: 180px;
+      overflow: auto;
+    }
+    .approval-diff-line {
+      display: flex;
+      gap: 6px;
+      padding: 0 6px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .approval-diff-line.add { background: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground) 14%, transparent); }
+    .approval-diff-line.del { background: color-mix(in srgb, var(--vscode-gitDecoration-deletedResourceForeground) 14%, transparent); }
+    .approval-diff-marker { flex: 0 0 12px; user-select: none; opacity: 0.8; }
+    .approval-diff-line.add .approval-diff-marker { color: var(--vscode-gitDecoration-addedResourceForeground); }
+    .approval-diff-line.del .approval-diff-marker { color: var(--vscode-gitDecoration-deletedResourceForeground); }
     .approval-actions {
       display: flex;
       gap: 8px;
@@ -1050,6 +1097,9 @@ ${permissionClientScript()}
     let isRunning = false;
     let transientAssistant;
     let streamedText = '';
+    // The most recent tool bubble, awaiting its result (so the result event can
+    // attach to it). Resets at every tool boundary / run reset.
+    let lastToolNode = null;
     // Pure Webview UI state: which session row is being renamed inline or asked
     // to confirm deletion. Never written back into the Session domain.
     let editingSessionId = null;
@@ -1308,6 +1358,7 @@ ${permissionClientScript()}
       conversation.replaceChildren();
       transientAssistant = undefined;
       streamedText = '';
+      lastToolNode = null;
 
       activeSession.items.forEach(item => {
         const node = appendMessage(
@@ -1563,9 +1614,92 @@ ${permissionClientScript()}
       reject.addEventListener('click', () => submitApproval(request.requestId, false));
       actions.append(approve, reject);
 
-      card.append(title, message, detail, actions);
+      const children = [title, message];
+      if (Array.isArray(request.diff) && request.diff.length > 0) {
+        children.push(renderApprovalDiff(request.diff));
+      }
+      if (detail.textContent) children.push(detail);
+      children.push(actions);
+      card.append(...children);
       approvalHost.appendChild(card);
       approvalHost.hidden = false;
+    }
+
+    function renderApprovalDiff(lines) {
+      const diff = document.createElement('div');
+      diff.className = 'approval-diff';
+      lines.forEach(line => {
+        const row = document.createElement('div');
+        const kind = line.kind === 'add' ? 'add' : (line.kind === 'del' ? 'del' : 'ctx');
+        row.className = 'approval-diff-line ' + kind;
+        const marker = document.createElement('span');
+        marker.className = 'approval-diff-marker';
+        marker.textContent = kind === 'add' ? '+' : (kind === 'del' ? '-' : ' ');
+        const text = document.createElement('span');
+        text.className = 'approval-diff-text';
+        text.textContent = line.text || '';
+        row.append(marker, text);
+        diff.appendChild(row);
+      });
+      return diff;
+    }
+
+    // Turn-by-turn transparency: the model's streaming text is shown as it
+    // arrives, then any tool the agent runs appears as its own step bubble
+    // (id/name/input, then outcome). The text bubble is "frozen" at each tool
+    // boundary and a fresh one starts for the next round, so the user sees the
+    // model's reasoning/commentary between actions, not only the final answer.
+    function finalizeTextBubble() {
+      if (!transientAssistant) return;
+      transientAssistant.classList.remove('streaming');
+      if (streamedText) {
+        transientAssistant.innerHTML = safeMarkdown(streamedText);
+        attachCopy(transientAssistant, streamedText);
+      } else {
+        transientAssistant.remove();
+      }
+      transientAssistant = undefined;
+      streamedText = '';
+    }
+    function compactToolInput(input) {
+      try {
+        const json = JSON.stringify(input);
+        return json && json !== '{}' ? json.slice(0, 200) : '';
+      } catch {
+        return '';
+      }
+    }
+    function appendToolNode(name, input) {
+      const node = document.createElement('div');
+      node.className = 'message tool';
+      const header = document.createElement('div');
+      header.className = 'tool-header';
+      header.textContent = '🔧 ' + name;
+      node.appendChild(header);
+      const preview = compactToolInput(input);
+      if (preview) {
+        const inputNode = document.createElement('div');
+        inputNode.className = 'tool-input';
+        inputNode.textContent = preview;
+        node.appendChild(inputNode);
+      }
+      const result = document.createElement('div');
+      result.className = 'tool-result pending';
+      result.textContent = '…';
+      node.appendChild(result);
+      node.__result = result;
+      conversation.appendChild(node);
+      const content = document.getElementById('content');
+      content.scrollTop = content.scrollHeight;
+      return node;
+    }
+    function setToolResult(node, message) {
+      const result = node.__result;
+      if (!result) return;
+      result.className = 'tool-result ' + (message.outcome === 'succeeded' ? 'ok' : 'fail');
+      result.textContent = (message.outcome === 'succeeded' ? '✓ ' : '✕ ') + (message.summary || '');
+      const content = document.getElementById('content');
+      content.scrollTop = content.scrollHeight;
     }
 
     function submit() {
@@ -1665,6 +1799,7 @@ ${permissionClientScript()}
         isRunning = true;
         streamedText = '';
         clearApprovals();
+        lastToolNode = null;
         transientAssistant = appendMessage('Thinking…', 'assistant', true);
         status.textContent = 'Generating…';
         updateSendState();
@@ -1682,23 +1817,33 @@ ${permissionClientScript()}
         renderApprovalCard(message);
       }
 
-      if (message.type === 'assistantStreamDelta' && transientAssistant) {
+      if (message.type === 'assistantStreamDelta') {
+        if (!transientAssistant) {
+          transientAssistant = appendMessage(streamedText, 'assistant', true);
+        }
         streamedText += typeof message.text === 'string' ? message.text : '';
         transientAssistant.textContent = streamedText;
         const content = document.getElementById('content');
         content.scrollTop = content.scrollHeight;
       }
 
+      if (message.type === 'agentToolCall') {
+        // Freeze the current text segment (the model's commentary), then show
+        // the tool as its own step bubble.
+        finalizeTextBubble();
+        lastToolNode = appendToolNode(message.name, message.input);
+      }
+
+      if (message.type === 'agentToolResult') {
+        if (lastToolNode) setToolResult(lastToolNode, message);
+        lastToolNode = null;
+      }
+
       if (message.type === 'assistantStreamCompleted') {
         isRunning = false;
         clearApprovals();
-        if (transientAssistant) {
-          transientAssistant.classList.remove('streaming');
-          // Re-render the finished text through the safe Markdown renderer so
-          // the reply formats (headings/bold/tables/code) instead of staying raw.
-          transientAssistant.innerHTML = safeMarkdown(streamedText);
-          attachCopy(transientAssistant, streamedText);
-        }
+        finalizeTextBubble();
+        lastToolNode = null;
         status.textContent = '';
         updateSendState();
       }
@@ -1710,16 +1855,8 @@ ${permissionClientScript()}
           : 'Session action failed.';
         // Finalize any partial stream, drop a bare "Thinking…" bubble, then
         // keep the failure visible as an error bubble (not just the status row).
-        if (transientAssistant) {
-          if (streamedText) {
-            transientAssistant.classList.remove('streaming');
-            transientAssistant.innerHTML = safeMarkdown(streamedText);
-          } else {
-            transientAssistant.remove();
-          }
-          transientAssistant = undefined;
-          streamedText = '';
-        }
+        finalizeTextBubble();
+        lastToolNode = null;
         appendErrorBubble(text);
         clearApprovals();
         status.textContent = text;
@@ -1731,6 +1868,8 @@ ${permissionClientScript()}
         clearApprovals();
         if (transientAssistant) transientAssistant.remove();
         transientAssistant = undefined;
+        streamedText = '';
+        lastToolNode = null;
         status.textContent = 'Stopped';
         updateSendState();
       }

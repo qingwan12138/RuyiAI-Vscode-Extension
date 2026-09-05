@@ -22,6 +22,6 @@ export class VsCodeToolConfirmation implements ToolConfirmationPort {
     signal.throwIfAborted();
     const summary = summarizeToolConfirmation(request);
     const requestId = this.createId();
-    return this.approvals.request(requestId, summary.message, summary.detail, signal);
+    return this.approvals.request(requestId, summary.message, summary.detail, signal, summary.diff);
   }
 }

@@ -1,8 +1,11 @@
 import { ToolConfirmationRequest } from '../../application/agent/readOnlyAgentLoop';
+import { ApprovalDiffLine } from '../../application/agent/approvalBroker';
 
 export interface ToolConfirmationSummary {
   message: string;
   detail: string;
+  /** Optional unified-diff preview of the change being approved. */
+  diff?: ApprovalDiffLine[];
 }
 
 /**
@@ -18,7 +21,8 @@ export function summarizeToolConfirmation(request: ToolConfirmationRequest): Too
     if (typeof path === 'string' && typeof content === 'string') {
       return {
         message: `Create the proposed file ${bounded(path, 180)}?`,
-        detail: [`Content: ${printable(content)}`, request.reason].join('\n')
+        detail: [`Content: ${printable(content)}`, request.reason].join('\n'),
+        diff: linesToDiff(content, 'add')
       };
     }
   }
@@ -31,11 +35,41 @@ export function summarizeToolConfirmation(request: ToolConfirmationRequest): Too
           `Replace: ${printable(oldText)}`,
           `With: ${printable(newText)}`,
           request.reason
-        ].join('\n')
+        ].join('\n'),
+        diff: replaceDiff(oldText, newText)
+      };
+    }
+  }
+  if (request.toolId === 'rewrite_text_file') {
+    const { path, content } = request.input;
+    if (typeof path === 'string' && typeof content === 'string') {
+      return {
+        message: `Replace the whole content of ${bounded(path, 180)}?`,
+        detail: [`New content: ${printable(content)}`, request.reason].join('\n'),
+        // No prior content available at approval time; show the new content so
+        // the user can review what the file will become.
+        diff: linesToDiff(content, 'add')
       };
     }
   }
   return genericSummary(request);
+}
+
+/** A whole-block diff: every line of `text` tagged with `kind`. */
+function linesToDiff(text: string, kind: 'add' | 'del'): ApprovalDiffLine[] {
+  return splitLines(text).map(value => ({ kind, text: value }));
+}
+
+/** -old / +new fragment diff for an exact replace. */
+function replaceDiff(oldText: string, newText: string): ApprovalDiffLine[] {
+  return [
+    ...splitLines(oldText).map(value => ({ kind: 'del' as const, text: value })),
+    ...splitLines(newText).map(value => ({ kind: 'add' as const, text: value }))
+  ];
+}
+
+function splitLines(value: string): string[] {
+  return value.split(/\r?\n/);
 }
 
 function genericSummary(request: ToolConfirmationRequest): ToolConfirmationSummary {
