@@ -4,6 +4,17 @@
 
 Yisi AI 是面向 RuyiSDK / RISC-V 开发场景的 VS Code Coding Agent。最终交付形态为 **一个 VSIX**：保留上游 `ruyisdk-vscode-extension` 原有能力，并嵌入闭源 Yisi AI 模块。Yisi AI 的核心必须保持独立，避免随上游 UI/内部服务重构而大面积修改。
 
+## 当前 Agent 能力（截至 v0.9）
+
+- **v0.2 Coding Agent MVP**：受限 Read/List/Search、选区与项目文档任务、Agent loop + 工具 schema + PermissionEngine（Plan/Manual/Accept Edits/Auto/Full Access）、结构化 ProcessRunner + VS Code Diagnostics；DoD e2e 证据在 `test/agent-loop-e2e.test.js`。
+- **v0.3 Reliable Editing**：edit/create/delete/rename/mkdir/rewrite + stale guard、批准前 diff 预览、undo/Edit Journal、validation planner + loop guard + Stop/Continue；"失败测试自动迭代修复"证据在 `test/agent-loop-fix-iteration.e2e.test.js`。
+- **v0.4 Git/Parallel Sessions**：`git_status`/`git_worktree`、dirty-worktree 删除保护、worktree 管理器 + 写 session 隔离执行（`SessionIsolationService`）。
+- **v0.5/v0.6 Ruyi Typed/Workflow**：`ruyi_check`/`ruyi_manage`（porcelain，环境变更门控）/`ruyi_workflow`（前置规划）。
+- **v0.7 Context & Mature Agent**：context 压缩防溢出（`ContextCompactor`）、`repo_index` 有界索引、`plan_todo`、`model_capabilities` 能力降级。
+- **v0.9 RC**：日志/错误密钥脱敏（`SecretRedactor`）、依赖/许可证 NOTICES 守卫、schema/迁移守卫、性能基线。
+
+> 进度与 DoD 见 `docs/12_ROADMAP_AND_DOD.md`；兼容矩阵见 `docs/18_COMPATIBILITY_MATRIX.md`。环境依赖的验收项（真实云账号联网、真实 Ruyi fixture、上游 ruyiSDK 合并、Linux LNX smoke、VSIX 发布）见 `docs/18`。
+
 
 
 
