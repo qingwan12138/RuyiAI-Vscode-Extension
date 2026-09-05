@@ -599,6 +599,69 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
         linear-gradient(to bottom, transparent, var(--vscode-sideBar-background) 15%);
     }
 
+    /* Privileged tool approval card, pinned above the composer in the sidebar. */
+    .approval-host {
+      margin-bottom: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .approval-card {
+      border: 1px solid var(--vscode-inputValidation-warningBorder, rgba(242, 181, 29, 0.55));
+      background: var(--vscode-inputValidation-warningBackground, transparent);
+      color: var(--vscode-foreground);
+      border-radius: var(--yisi-radius-md);
+      padding: 10px 12px;
+      box-shadow: 0 1px 6px rgba(0,0,0,.08);
+    }
+    .approval-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--vscode-descriptionForeground);
+      margin-bottom: 4px;
+    }
+    .approval-message {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .approval-detail {
+      margin: 0 0 8px;
+      padding: 6px 8px;
+      border-radius: 5px;
+      background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.12));
+      color: var(--vscode-foreground);
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 11px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 120px;
+      overflow: auto;
+    }
+    .approval-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .approval-button {
+      border: 1px solid var(--yisi-border);
+      background: var(--vscode-button-secondaryBackground, var(--yisi-surface));
+      color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+      border-radius: 6px;
+      padding: 4px 14px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .approval-button.approve {
+      background: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+      border-color: transparent;
+    }
+    .approval-button.approve:hover { opacity: 0.9; }
+    .approval-button.reject:hover { background: var(--vscode-button-secondaryHoverBackground, var(--yisi-surface-hover)); }
+
     .composer {
       min-width: 0;
       max-width: 100%;
@@ -935,6 +998,7 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     </main>
 
     <footer class="composer-wrap">
+      <div class="approval-host" id="approvalHost" hidden></div>
       <div class="composer">
         <textarea id="promptInput" rows="1" placeholder="Ask Yisi to work on your project..." aria-label="Message Yisi AI"></textarea>
         <div class="context-chips" id="contextChips" aria-label="Attached context"></div>
@@ -980,6 +1044,7 @@ ${permissionClientScript()}
     const historyPanel = document.getElementById('historyPanel');
     const historyList = document.getElementById('historyList');
     const contextChips = document.getElementById('contextChips');
+    const approvalHost = document.getElementById('approvalHost');
     let sessionSummaries = [];
     let activeSession;
     let isRunning = false;
@@ -1448,6 +1513,61 @@ ${permissionClientScript()}
       content.scrollTop = content.scrollHeight;
     }
 
+    // Privileged tool approvals render as a card pinned above the composer.
+    // The user's choice is posted back to the host, which resolves the agent
+    // loop's confirmation. Cards are cleared on run-complete/stop/state reset.
+    function clearApprovals() {
+      if (!approvalHost) return;
+      approvalHost.replaceChildren();
+      approvalHost.hidden = true;
+    }
+    function submitApproval(requestId, approved) {
+      vscode.postMessage({ type: 'toolApprovalResponse', requestId, approved });
+      if (approvalHost) {
+        const card = approvalHost.querySelector('[data-request="' + requestId + '"]');
+        if (card) card.remove();
+        if (!approvalHost.children.length) approvalHost.hidden = true;
+      }
+    }
+    function renderApprovalCard(request) {
+      if (!approvalHost) return;
+      const card = document.createElement('div');
+      card.className = 'approval-card';
+      card.setAttribute('data-request', request.requestId);
+
+      const title = document.createElement('div');
+      title.className = 'approval-title';
+      title.textContent = '需要确认';
+
+      const message = document.createElement('div');
+      message.className = 'approval-message';
+      message.textContent = request.message || '允许此操作吗？';
+
+      const detail = document.createElement('pre');
+      detail.className = 'approval-detail';
+      detail.textContent = request.detail || '';
+
+      const actions = document.createElement('div');
+      actions.className = 'approval-actions';
+      const approve = document.createElement('button');
+      approve.type = 'button';
+      approve.className = 'approval-button approve';
+      approve.textContent = 'Approve';
+      approve.setAttribute('aria-label', 'Approve action');
+      approve.addEventListener('click', () => submitApproval(request.requestId, true));
+      const reject = document.createElement('button');
+      reject.type = 'button';
+      reject.className = 'approval-button reject';
+      reject.textContent = '拒绝';
+      reject.setAttribute('aria-label', '拒绝');
+      reject.addEventListener('click', () => submitApproval(request.requestId, false));
+      actions.append(approve, reject);
+
+      card.append(title, message, detail, actions);
+      approvalHost.appendChild(card);
+      approvalHost.hidden = false;
+    }
+
     function submit() {
       if (isRunning) {
         vscode.postMessage({ type: 'stop' });
@@ -1527,6 +1647,7 @@ ${permissionClientScript()}
         const ids = new Set(sessionSummaries.map(summary => summary.id));
         if (editingSessionId && !ids.has(editingSessionId)) editingSessionId = null;
         if (confirmDeleteSessionId && !ids.has(confirmDeleteSessionId)) confirmDeleteSessionId = null;
+        clearApprovals();
         renderActiveSession();
         if (activeSession) permissionControl.setMode(activeSession.permissionMode);
         renderHistory();
@@ -1543,6 +1664,7 @@ ${permissionClientScript()}
       if (message.type === 'assistantStreamStarted') {
         isRunning = true;
         streamedText = '';
+        clearApprovals();
         transientAssistant = appendMessage('Thinking…', 'assistant', true);
         status.textContent = 'Generating…';
         updateSendState();
@@ -1556,6 +1678,10 @@ ${permissionClientScript()}
         updateContextRing(message.usage);
       }
 
+      if (message.type === 'toolApprovalRequest') {
+        renderApprovalCard(message);
+      }
+
       if (message.type === 'assistantStreamDelta' && transientAssistant) {
         streamedText += typeof message.text === 'string' ? message.text : '';
         transientAssistant.textContent = streamedText;
@@ -1565,6 +1691,7 @@ ${permissionClientScript()}
 
       if (message.type === 'assistantStreamCompleted') {
         isRunning = false;
+        clearApprovals();
         if (transientAssistant) {
           transientAssistant.classList.remove('streaming');
           // Re-render the finished text through the safe Markdown renderer so
@@ -1594,12 +1721,14 @@ ${permissionClientScript()}
           streamedText = '';
         }
         appendErrorBubble(text);
+        clearApprovals();
         status.textContent = text;
         updateSendState();
       }
 
       if (message.type === 'runStopped') {
         isRunning = false;
+        clearApprovals();
         if (transientAssistant) transientAssistant.remove();
         transientAssistant = undefined;
         status.textContent = 'Stopped';

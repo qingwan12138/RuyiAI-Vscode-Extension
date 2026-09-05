@@ -42,6 +42,20 @@ test('assistant and user bubbles expose a copy-to-clipboard button', () => {
   assert.match(source, /!\s*streaming\s*&&\s*\(role === 'assistant' \|\| role === 'user'\)/);
 });
 
+test('privileged tool approvals render as a sidebar card, not a window modal', () => {
+  assert.match(source, /approvalHost/);
+  assert.match(source, /renderApprovalCard/);
+  assert.match(source, /toolApprovalResponse/);
+  assert.match(source, /approval-card/);
+  assert.match(source, /approval-button approve/);
+  assert.match(source, /clearApprovals/);
+  // The host resolves the webview's answer back into the approval broker.
+  assert.match(provider, /ApprovalBroker/);
+  assert.match(provider, /approvals\.resolve/);
+  assert.match(provider, /attachPost/);
+  assert.match(provider, /approvals\.cancelAll/);
+});
+
 test('host surfaces run errors only after re-publishing session state', () => {
   assert.match(provider, /surfaceRunOutcome/);
   assert.match(provider, /status !== 'error'/);

@@ -8,6 +8,7 @@ import { OpenAICompatibleProvider } from './infrastructure/llm/openAICompatibleP
 import { AnthropicProvider } from './infrastructure/llm/anthropicProvider';
 import { JsonSessionRepository } from './infrastructure/persistence/jsonSessionRepository';
 import { YisiChatViewProvider } from './ui/chatViewProvider';
+import { ApprovalBroker } from './application/agent/approvalBroker';
 import { ModelControlService } from './application/modelControl/modelControlService';
 import { ProviderSetupWizard } from './vscode/provider/providerSetupWizard';
 import { VsCodeProviderConfigurationRepository } from './vscode/provider/vsCodeProviderConfigurationRepository';
@@ -103,7 +104,8 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
   );
   await providerSetup.applyWorkspaceDefaultToActiveSession();
   const providerCatalog = new ProviderCatalog(providerConfigurations, secrets, process.env, providerFactory);
-  const agentWorkspace = await createAgentWorkspace();
+  const approvals = new ApprovalBroker();
+  const agentWorkspace = await createAgentWorkspace(approvals);
   const modelControl = new ModelControlService(providerConfigurations, sessions, process.env);
   const attachmentService = new AttachmentService(createDefaultAttachmentRegistry(), {
     getVisionCapability: async () => {
@@ -147,6 +149,7 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
     chat,
     new VsCodeWorkspaceContextPicker(attachmentService),
     modelControl,
+    approvals,
     agentWorkspace.profile,
     () => readContextUsage(sessions, providerCatalog, providerConfigurations)
   );
@@ -187,7 +190,7 @@ interface AgentWorkspaceServices {
   edits?: WorkspaceEditService;
 }
 
-async function createAgentWorkspace(): Promise<AgentWorkspaceServices> {
+async function createAgentWorkspace(approvals: ApprovalBroker): Promise<AgentWorkspaceServices> {
   const workspace = selectLocalAgentWorkspace(vscode.workspace.workspaceFolders);
   if (!workspace) return {};
   try {
@@ -221,7 +224,7 @@ async function createAgentWorkspace(): Promise<AgentWorkspaceServices> {
       new ToolRegistry(tools),
       new PermissionEngine(),
       workspace.uri,
-      new VsCodeToolConfirmation()
+      new VsCodeToolConfirmation(approvals)
     );
     const profile: ProjectProfileSource = {
       inspect: async () => {

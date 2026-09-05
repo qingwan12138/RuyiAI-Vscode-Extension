@@ -20,7 +20,8 @@ export type WebviewMessage =
   | { type: 'modelControl.setReasoning'; value: 'auto' | 'off' | 'low' | 'medium' | 'high' | 'xhigh' }
   | { type: 'modelControl.setSpeed'; value: 'standard' | 'fast' }
   | { type: 'modelControl.setTemperature'; value: number }
-  | { type: 'modelControl.setMaxTokens'; value: number };
+  | { type: 'modelControl.setMaxTokens'; value: number }
+  | { type: 'toolApprovalResponse'; requestId: string; approved: boolean };
 
 export type HostMessage =
   | { type: 'sessionState'; sessions: unknown[]; activeSession: unknown }
@@ -32,7 +33,8 @@ export type HostMessage =
   | { type: 'sessionError'; message: string }
   | { type: 'contextState'; contexts: unknown[] }
   | { type: 'modelControl.state'; state: ModelControlState }
-  | { type: 'contextUsage'; usage: ContextUsageState | null };
+  | { type: 'contextUsage'; usage: ContextUsageState | null }
+  | { type: 'toolApprovalRequest'; requestId: string; message: string; detail: string };
 
 export class WebviewProtocolError extends Error {
   constructor() {
@@ -154,6 +156,15 @@ export function parseWebviewMessage(value: unknown): WebviewMessage {
     && value.value <= 1_000_000
   ) {
     return { type: 'modelControl.setMaxTokens', value: value.value };
+  }
+
+  if (
+    value.type === 'toolApprovalResponse'
+    && hasExactKeys(value, ['type', 'requestId', 'approved'])
+    && isNonBlank(value.requestId)
+    && typeof value.approved === 'boolean'
+  ) {
+    return { type: 'toolApprovalResponse', requestId: value.requestId, approved: value.approved };
   }
 
   throw new WebviewProtocolError();

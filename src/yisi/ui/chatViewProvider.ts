@@ -12,6 +12,7 @@ import { ModelControlService } from '../application/modelControl/modelControlSer
 import type { PermissionMode } from '../domain/session';
 import type { ContextUsageState } from '../application/context/contextUsage';
 import type { ChatRunOutcome } from './chatRunCoordinator';
+import { ApprovalBroker } from '../application/agent/approvalBroker';
 import {
   EditorSelectionTaskKind,
   buildSelectionTaskMessage
@@ -42,6 +43,7 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
     chat: ChatService,
     private readonly contextPicker: AttachmentContextPicker,
     private readonly modelControl: ModelControlService,
+    private readonly approvals: ApprovalBroker,
     private readonly projectProfile?: ProjectProfileSource,
     private readonly contextUsage?: () => Promise<ContextUsageState | null>
   ) {
@@ -66,10 +68,19 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
 
     view.webview.html = createChatViewHtml(view.webview, this.extensionUri);
 
+    // Route privileged tool approvals into this webview (the sidebar prompt).
+    this.approvals.attachPost(message => {
+      void this.view?.webview.postMessage(message);
+    });
+
     this.disposables.push(
       view.webview.onDidReceiveMessage((message: unknown) => this.receiveMessage(message)),
       view.onDidDispose(() => {
         this.disposeViewListeners();
+        this.approvals.detachPost();
+        // Fail any approval still waiting on a now-gone view so the agent run
+        // does not hang on an unanswerable prompt.
+        this.approvals.cancelAll();
         this.view = undefined;
       })
     );
@@ -291,6 +302,11 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
         void this.runChat(message.text);
         return;
       }
+
+      case 'toolApprovalResponse':
+        // Answers the Agent-loop approval prompt rendered in this webview.
+        this.approvals.resolve(message.requestId, message.approved);
+        return;
 
       case 'stop':
         this.stopCurrentRun();
