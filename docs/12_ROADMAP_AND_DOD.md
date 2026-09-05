@@ -50,6 +50,8 @@ DoD：不用解析 human CLI 文本完成核心 Ruyi 操作；上游 bridge 缺�
 - Ruyi-aware validation / recovery
 DoD：至少一个真实 Ruyi/RISC-V fixture 或测试环境完成端到端 workflow。
 
+当前实现状态（2026-09-05，前置规划已落地）：新增 **`RuyiWorkflowService` + `ruyi_workflow` 工具**（readOnly）：基于 `ruyi --porcelain` 数据报告 **Board → Profile → Toolchain → Sysroot → Venv** 的就绪度（ruyi CLI 版本、已装 toolchain 包、profiles、目标 profile 是否已装、sysroot/venv 可否推导）与缺口列表；不猜测 board→toolchain 映射（真实映射属于 Ruyi 设备/领域数据，由真实环境提供），只枚举已装 toolchain 并标记命名缺口，供上层 `ruyi_manage`/`ruyi_check` 决策。覆盖：`test/ruyi-workflow-service.test.js`（就绪报告、缺失 profile/toolchain 标记、ruyi 缺失时安全降级、工具 readOnly 与 target 清洗）。**待续/环境依赖**：真正的端到端 Build/validate 及 Ruyi-aware 错误恢复（“验证失败→依据 Ruyi 缺件自动修复”）需要 **至少一个真实 Ruyi/RISC-V fixture 或测试环境**——本机为 Windows 开发环境未安装 ruyi，无法在本机完成该 DoD；该验收项在具备 RuyiSDK 的 Linux 主机上执行（同 v0.1 真实云账号联网验收一样，作为环境相关验收记录，不扩张为已完成 Agent 能力）。
+
 ## v0.7 Context & Mature Agent
 - compaction、repo map/index、plan/todo、history management
 - provider capability degradation、cost/context controls
