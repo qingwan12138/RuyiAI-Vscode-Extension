@@ -42,6 +42,7 @@ import {
 import { ProjectProfileService, createInspectProjectTool } from './application/context/projectProfileService';
 import { ValidationPlannerService, createRunValidationsTool } from './application/validation/validationPlannerService';
 import { RuyiInspectionService, createRuyiInspectTool } from './application/ruyi/ruyiInspectionService';
+import { RuyiManageService, createRuyiManageTool } from './application/ruyi/ruyiManageService';
 import { RuyiCliAdapter } from './ruyi/ruyiCliAdapter';
 import { SymbolLookupService, createListSymbolsTool } from './application/context/symbolLookupService';
 import { VsCodeDocumentSymbolProvider } from './vscode/symbols/vsCodeSymbolProvider';
@@ -268,6 +269,7 @@ async function buildAgentRunner(
     createInspectProjectTool(profileService),
     createRunValidationsTool(validationPlanner),
     createRuyiInspectTool(ruyiInspection),
+    createRuyiManageTool(new RuyiManageService(new RuyiCliAdapter())),
     createListSymbolsTool(symbols)
   ];
   return new AgentChatRunner(

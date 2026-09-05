@@ -67,3 +67,29 @@ test('getVersion trims stdout and requires success', async () => {
   const { adapter } = harness([runResult({ stdout: { text: 'ruyi 0.19.0\n', totalBytes: 12, retainedBytes: 12, truncated: false } })]);
   assert.equal(await adapter.getVersion(), 'ruyi 0.19.0');
 });
+
+test('builds porcelain argv for venv, profile, update and extract operations', async () => {
+  const { calls, adapter } = harness([ ]);
+  await adapter.createVenv('rv', 'gcc-upstream');
+  await adapter.removeVenv('rv');
+  await adapter.createProfile('p1', 'gcc-upstream');
+  await adapter.removeProfile('p1');
+  await adapter.update();
+  await adapter.extract('gcc-upstream');
+
+  const cmds = calls.map(call => call.request.args);
+  assert.deepEqual(cmds[0], ['--porcelain', 'venv', 'create', 'rv', 'gcc-upstream']);
+  assert.deepEqual(cmds[1], ['--porcelain', 'venv', 'remove', 'rv']);
+  assert.deepEqual(cmds[2], ['--porcelain', 'entity', 'create', '-t', 'profile-v1', 'p1', '--package', 'gcc-upstream']);
+  assert.deepEqual(cmds[3], ['--porcelain', 'entity', 'remove', '-t', 'profile-v1', 'p1']);
+  assert.deepEqual(cmds[4], ['--porcelain', 'update']);
+  assert.deepEqual(cmds[5], ['--porcelain', 'extract', 'gcc-upstream']);
+});
+
+test('returns records only on success and keeps stderr on failure', async () => {
+  const { adapter } = harness([runResult({ exitCode: 1, stderr: { text: 'not installed\n', totalBytes: 15, retainedBytes: 15, truncated: false } })]);
+  const result = await adapter.uninstallPackage('pkg');
+  assert.equal(result.code, 1);
+  assert.equal(result.records.length, 0);
+  assert.match(result.stderr, /not installed/);
+});

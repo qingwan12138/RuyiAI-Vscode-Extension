@@ -3,10 +3,12 @@ import { ProcessResult, ProcessRunner } from '../domain/process';
 import { NodeProcessRunner } from '../infrastructure/process/nodeProcessRunner';
 
 /**
- * Ruyi CLI adapter backed by the structured ProcessRunner (C2): precise argv,
- * bounded stdout/stderr, timeout and cancellation, no shell. Records are still
- * parsed from porcelain JSON lines. Install/uninstall remain available on the
- * port but are intentionally NOT exposed as agent tools.
+ * Ruyi CLI adapter backed by the structured ProcessRunner: precise argv,
+ * bounded stdout/stderr, timeout and cancellation, no shell. Core operations
+ * are expressed through `ruyi --porcelain` and parsed as one JSON document per
+ * line; the adapter never parses the human-facing CLI text. The exact porcelain
+ * subcommand grammar is centralized here so a future Ruyi version change only
+ * touches this adapter.
  */
 export class RuyiCliAdapter implements RuyiPort {
   constructor(
@@ -40,6 +42,34 @@ export class RuyiCliAdapter implements RuyiPort {
     return this.execute(['uninstall', packageId]);
   }
 
+  createVenv(name: string, packageId?: string): Promise<RuyiCommandResult> {
+    const args = ['--porcelain', 'venv', 'create', name];
+    if (packageId) args.push(packageId);
+    return this.execute(args);
+  }
+
+  removeVenv(name: string): Promise<RuyiCommandResult> {
+    return this.execute(['--porcelain', 'venv', 'remove', name]);
+  }
+
+  createProfile(name: string, packageId?: string): Promise<RuyiCommandResult> {
+    const args = ['--porcelain', 'entity', 'create', '-t', 'profile-v1', name];
+    if (packageId) args.push('--package', packageId);
+    return this.execute(args);
+  }
+
+  removeProfile(name: string): Promise<RuyiCommandResult> {
+    return this.execute(['--porcelain', 'entity', 'remove', '-t', 'profile-v1', name]);
+  }
+
+  update(): Promise<RuyiCommandResult> {
+    return this.execute(['--porcelain', 'update']);
+  }
+
+  extract(packageId: string): Promise<RuyiCommandResult> {
+    return this.execute(['--porcelain', 'extract', packageId]);
+  }
+
   private async execute(args: string[], signal?: AbortSignal): Promise<RuyiCommandResult> {
     const result: ProcessResult = await this.runner.run(
       { executable: this.executable, args, cwd: this.cwd },
@@ -49,11 +79,13 @@ export class RuyiCliAdapter implements RuyiPort {
       throw new Error(`ruyi ${args[0] ?? ''} ${result.status}: ${tail(result.errorMessage ?? '')}`);
     }
     const stdout = result.stdout.text;
+    const code = result.exitCode ?? -1;
+    const stderrTidied = tail(result.stderr.text);
     return {
-      code: result.exitCode ?? -1,
+      code,
       stdout,
       stderr: result.stderr.text,
-      records: parsePorcelainRecords(stdout)
+      records: code === 0 ? parsePorcelainRecords(stdout) : []
     };
   }
 }

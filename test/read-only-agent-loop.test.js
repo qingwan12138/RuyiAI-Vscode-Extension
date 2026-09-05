@@ -167,8 +167,8 @@ test('admits permission-gated process-exec tools but still fails closed out of s
   assert.equal(admittedResult.finalText, 'tests ok');
   assert.equal(executed, true);
 
-  // Out-of-scope risks (destructive / network / environment) never reach execute.
-  for (const risk of ['destructive', 'network', 'environmentChange']) {
+  // Out-of-scope risks (destructive / network) never reach execute.
+  for (const risk of ['destructive', 'network']) {
     let touched = false;
     const unsafe = tool('run_command', async () => { touched = true; });
     unsafe.risk = risk;
@@ -183,6 +183,20 @@ test('admits permission-gated process-exec tools but still fails closed out of s
     assert.match(result.reason, /Agent tool scope/i);
     assert.equal(touched, false);
   }
+
+  // environmentChange is admitted like processExec (permission-gated below).
+  let envTouched = false;
+  const envTool = tool('ruyi_manage', async () => { envTouched = true; return { code: 0, records: [] }; });
+  envTool.risk = 'environmentChange';
+  envTool.mutatesWorkspace = true;
+  const envLoop = new ReadOnlyAgentLoop(
+    provider([[call('c1', 'ruyi_manage', { action: 'install', packageId: 'gcc' })], [text('done')]]),
+    new ToolRegistry([envTool]),
+    new PermissionEngine()
+  );
+  const envResult = await envLoop.run(request, context(signal), 'fullAccess', () => {}, signal);
+  assert.equal(envResult.status, 'completed');
+  assert.equal(envTouched, true);
 });
 
 test('keeps process-exec commands behind explicit confirmation in manual mode', async () => {

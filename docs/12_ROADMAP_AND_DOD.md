@@ -43,6 +43,8 @@ DoD：两个写 session 并行不直接修改同一 working tree；dirty worktre
 - optional upstream refresh bridge
 DoD：不用解析 human CLI 文本完成核心 Ruyi 操作；上游 bridge 缺失不影响核心。
 
+当前实现状态（2026-09-05，达成核心）：`RuyiPort` 扩展为**类型化**操作集（getVersion/listPackages/listProfiles/install/uninstall/**createVenv/removeVenv/createProfile/removeProfile/update/extract**）；`RuyiCliAdapter` 全部通过 `ruyi --porcelain` 并以"每行一个 JSON"解析记录，**从不解析面向人类的 CLI 文本**（docs/16 §12、DoD）；CLI 语法集中在适配器一处，便于未来版本变更。新增 **`ruyi_manage` 工具**（重活：install/uninstall/venv/profile/update/extract），`risk: environmentChange`、`mutatesWorkspace: true`（方案 deny / manual·auto·acceptEdits confirm / fullAccess allow），Agent loop 的 bounded scope 已**接纳 environmentChange**（与 processExec 一样仅经过权限门）。上游 refresh bridge 为可选项、不依赖 → 缺失不影响核心（DoD 满足）。覆盖：`test/ruyi-cli-adapter.test.js`（porcelain argv、记录仅在成功时返回、非零退出保留 stderr、噪声行丢弃）、`test/ruyi-manage-service.test.js`（工具元数据与权限、类型化分发、必填字段校验、environmentChange 在各权限模式下的门控）、`test/read-only-agent-loop.test.js`（environmentChange 被接纳并执行；destructive/network 仍拒）。**待续/交付项**：Ruyi 操作 UI 面板（面向用户的 venv/profile/package 管理界面），以及真实 Ruyi CLI/RISC-V fixture 的实机验收（归入 v0.6 DoD 的"至少一个真实 Ruyi/RISC-V fixture"）。
+
 ## v0.6 Ruyi Intelligent Workflow
 - Board/Profile/Toolchain/Sysroot/Venv/Build workflow
 - Ruyi-aware validation / recovery

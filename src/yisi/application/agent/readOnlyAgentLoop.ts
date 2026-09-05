@@ -147,7 +147,10 @@ export class AgentToolLoop {
         // admitted but stays fully permission-gated below: plan denies, other
         // modes require confirmation unless the session grants full access.
         const isProcessExec = tool.risk === 'processExec' && tool.mutatesWorkspace;
-        if (!isRead && !isWorkspaceWrite && !isProcessExec) {
+        // environmentChange (Ruyi SDK env mutations) is admitted the same way:
+        // plan denies, manual/auto/acceptEdits confirm, fullAccess allows.
+        const isEnvironmentChange = tool.risk === 'environmentChange' && tool.mutatesWorkspace;
+        if (!isRead && !isWorkspaceWrite && !isProcessExec && !isEnvironmentChange) {
           return blocked('Tool is outside the bounded Agent tool scope.', executions);
         }
         const decision = this.permissions.evaluate(mode, {
