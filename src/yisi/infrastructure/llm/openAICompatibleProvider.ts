@@ -14,6 +14,7 @@ import {
 import { ProviderKind } from '../../domain/providerConfiguration';
 import { modelSupportsVision } from '../../domain/modelCapabilities';
 import { parseServerSentEvents } from './sseParser';
+import { createSecretRedactor } from '../../application/security/secretRedactor';
 
 type FetchImplementation = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 const MAX_TOOL_CALLS = 16;
@@ -57,6 +58,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
   private readonly fetchImpl: FetchImplementation;
   private readonly retries: number;
   private readonly retryBackoffMs: number;
+  private readonly redactor = createSecretRedactor();
 
   constructor(private readonly options: OpenAICompatibleProviderOptions) {
     this.id = options.id;
@@ -258,7 +260,9 @@ export class OpenAICompatibleProvider implements LLMProvider {
     if (response.ok) return;
     let body = '';
     try { body = (await response.text()).slice(0, 240); } catch { body = ''; }
-    if (this.options.apiKey) body = body.split(this.options.apiKey).join('[REDACTED]');
+    // Redact the configured key and common secret-shaped substrings so a
+    // provider error body can never echo a credential into a surfaced error.
+    body = this.redactor.redact(body, this.options.apiKey ? [this.options.apiKey] : []);
     const suffix = body ? `: ${body}` : '';
     throw new ProviderTransportError(`Provider HTTP ${response.status}${suffix}`, response.status, requestId(response));
   }

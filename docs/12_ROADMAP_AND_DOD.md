@@ -68,5 +68,9 @@ DoD：原 RuyiSDK regression + Yisi regression 全过；集成 diff 集中在 se
 ## v0.9 RC
 性能、安全、许可证、依赖、迁移、日志 redaction、文档、兼容矩阵。
 
+当前实现状态（2026-09-05，日志/错误 redaction 已落地）：新增 **`SecretRedactor`**（application/security）：`redact`/`redactValues`/`censor`/`likelySecret`，按精确密钥值替换 + 常见形态（`Authorization: Bearer …`、`api_key=..`、`sk-…`、长 token）统一转为 `[REDACTED]`，纯函数无依赖。已接入 `OpenAICompatibleProvider.requireSuccess`——HTTP 错误响应体会先脱敏，**Provider 错误消息永不回显 API key**。覆盖：`test/secret-redactor.test.js`（精确值、常见形态、likelySecret、空值安全）、`test/openai-compatible-provider.test.js`（401 错误体含 key 时已被脱敏）。**待续**：性能基线、许可证台账核对（`THIRD_PARTY_NOTICES.md` 已在）、依赖审计、schema/存储迁移、文档补齐、兼容矩阵；以及把 redaction 接入更多日志点与代码路径等。
+
 ## v1.0 Delivery
 冻结 API/schema；交付 VSIX、安装/使用/维护/升级说明、第三方 NOTICE、测试报告。
+
+> v0.8（合并进 ruyisdk-vscode-extension / one VSIX / 原 RuyiSDK regression + Yisi regression 全过 / 集成 diff 集中在 seam）**需要上游 ruyisdk-vscode-extension 仓库**，属环境依赖，本机无法执行上游合并与回归，仅在代码 seam 层做自测准备；v0.9/v1.0 其余代码级项（性能、依赖、文档、NOTICE 核对、测试报告）可在本机完成，VSIX 打包与安装说明随交付一并补齐。

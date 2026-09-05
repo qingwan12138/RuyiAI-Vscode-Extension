@@ -340,3 +340,20 @@ test('a provider HTTP error status is not retried as a network failure', async (
   );
   assert.equal(calls, 1);
 });
+
+test('a provider error body never echoes the API key', async () => {
+  const key = 'sk-super-secret-abcdefghijklmnop';
+  const provider = new OpenAICompatibleProvider({
+    id: 'p', baseUrl: 'https://example.com/v1', apiKey: key, retries: 0,
+    fetchImpl: async () => new Response('{"error":"invalid key ' + key + '"}', { status: 401 })
+  });
+  await assert.rejects(
+    async () => collect(provider.streamChat({ model: 'm', messages: [] })),
+    error => {
+      assert.ok(error instanceof ProviderTransportError);
+      assert.equal(error.message.includes(key), false, 'api key must not appear in the error');
+      assert.match(error.message, /\[REDACTED\]/);
+      return true;
+    }
+  );
+});
