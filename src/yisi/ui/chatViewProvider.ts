@@ -11,7 +11,6 @@ import { ATTACHMENT_LIMITS } from '../context/attachment/attachmentTypes';
 import { ModelControlService } from '../application/modelControl/modelControlService';
 import type { PermissionMode } from '../domain/session';
 import type { ContextUsageState } from '../application/context/contextUsage';
-import type { ChatRunOutcome } from './chatRunCoordinator';
 import {
   EditorSelectionTaskKind,
   buildSelectionTaskMessage
@@ -144,9 +143,8 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
         projectSummary = undefined;
       }
     }
-    const outcome = await this.runs.start(buildSelectionTaskMessage(kind, context, projectSummary));
+    await this.runs.start(buildSelectionTaskMessage(kind, context, projectSummary));
     await this.publishState();
-    this.surfaceRunOutcome(outcome);
   }
 
   /**
@@ -189,9 +187,8 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
       }
     }
     void vscode.commands.executeCommand('yisiAI.chat.focus');
-    const outcome = await this.runs.start(buildProjectDocTaskMessage(kind, { projectName, fileName }, projectSummary));
+    await this.runs.start(buildProjectDocTaskMessage(kind, { projectName, fileName }, projectSummary));
     await this.publishState();
-    this.surfaceRunOutcome(outcome);
   }
 
   private async handleMessage(message: WebviewMessage): Promise<void> {
@@ -308,19 +305,8 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
       .flatMap(outcome => outcome.context ? [outcome.context as ExplicitFileContext] : []);
     this.pendingContexts.delete(sessionId);
     await this.publishContextState();
-    const runOutcome = await this.runs.start(text, contexts);
+    await this.runs.start(text, contexts);
     await this.publishState();
-    this.surfaceRunOutcome(runOutcome);
-  }
-
-  /**
-   * Run errors are surfaced only AFTER publishState: the webview rebuilds its
-   * conversation from the persisted session state on every state push, so an
-   * error posted before that push would be wiped before the user sees it.
-   */
-  private surfaceRunOutcome(outcome: ChatRunOutcome): void {
-    if (outcome.status !== 'error') return;
-    void this.view?.webview.postMessage({ type: 'sessionError', message: outcome.message });
   }
 
   private async addFileContext(): Promise<void> {

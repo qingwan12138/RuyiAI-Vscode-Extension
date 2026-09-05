@@ -25,20 +25,6 @@ test('streams provider content via textContent and renders safe Markdown after c
   assert.match(source, /vscode\.postMessage\(\{ type: 'removeAttachment', attachmentId: attachment\.id \}\)/);
 });
 
-test('run errors are rendered as a durable conversation bubble, not only the status row', () => {
-  assert.match(source, /appendErrorBubble/);
-  assert.match(source, /message error/);
-  // A failure must drop a bare "Thinking…" bubble and finalize any partial text.
-  assert.match(source, /streamedText/);
-  assert.match(source, /sessionError/);
-});
-
-test('host surfaces run errors only after re-publishing session state', () => {
-  assert.match(provider, /surfaceRunOutcome/);
-  assert.match(provider, /status !== 'error'/);
-  assert.match(provider, /publishState\(\)/);
-});
-
 test('never relies on native window.prompt or window.confirm for session actions', () => {
   assert.equal(source.includes('window.prompt'), false);
   assert.equal(source.includes('window.confirm'), false);

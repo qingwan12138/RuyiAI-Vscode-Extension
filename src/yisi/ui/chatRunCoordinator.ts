@@ -7,18 +7,6 @@ export type ChatRunEvent =
   | { type: 'runStopped' }
   | { type: 'sessionError'; message: string };
 
-/**
- * Terminal result of a coordinator run. The coordinator keeps emitting live
- * lifecycle events (started/delta/completed/runStopped) but does NOT emit
- * `sessionError` itself: the caller surfaces run errors AFTER it re-publishes
- * session state, otherwise the webview's state re-render wipes the error from
- * the UI before the user ever sees it.
- */
-export type ChatRunOutcome =
-  | { status: 'completed' }
-  | { status: 'stopped' }
-  | { status: 'error'; message: string };
-
 export class ChatRunCoordinator {
   private controller?: AbortController;
 
@@ -31,9 +19,10 @@ export class ChatRunCoordinator {
     return this.controller !== undefined;
   }
 
-  async start(text: string, contexts: ExplicitFileContext[] = []): Promise<ChatRunOutcome> {
+  async start(text: string, contexts: ExplicitFileContext[] = []): Promise<void> {
     if (this.controller) {
-      return { status: 'error', message: 'A chat run is already in progress.' };
+      this.emit({ type: 'sessionError', message: 'A chat run is already in progress.' });
+      return;
     }
     const controller = new AbortController();
     this.controller = controller;
@@ -46,13 +35,12 @@ export class ChatRunCoordinator {
         contexts
       );
       this.emit({ type: 'assistantStreamCompleted' });
-      return { status: 'completed' };
     } catch (error: unknown) {
       if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
         this.emit({ type: 'runStopped' });
-        return { status: 'stopped' };
+      } else {
+        this.emit({ type: 'sessionError', message: safeMessage(error) });
       }
-      return { status: 'error', message: safeMessage(error) };
     } finally {
       if (this.controller === controller) this.controller = undefined;
     }
