@@ -60,6 +60,10 @@
         "title": "Yisi AI: Show Edit Journal / Undo"
       },
       {
+        "command": "yisiAI.ruyi.check",
+        "title": "Yisi AI: Ruyi Environment Check"
+      },
+      {
         "command": "yisiAI.focus",
         "title": "Yisi AI: Open Chat",
         "icon": "$(yisi-ai)"

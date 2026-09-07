@@ -48,11 +48,29 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
     private readonly modelControl: ModelControlService,
     private readonly approvals: ApprovalBroker,
     private readonly projectProfile?: ProjectProfileSource,
-    private readonly contextUsage?: () => Promise<ContextUsageState | null>
+    private readonly contextUsage?: () => Promise<ContextUsageState | null>,
+    private readonly ruyiInspect?: () => Promise<string | null>
   ) {
     this.runs = new ChatRunCoordinator(chat, event => {
       void this.view?.webview.postMessage(event);
     });
+  }
+
+  /** v0.5 Ruyi operation surface: reveal the chat and show the Ruyi env summary. */
+  async runRuyiCheck(): Promise<void> {
+    void vscode.commands.executeCommand('yisiAI.chat.focus');
+    try {
+      const summary = await this.ruyiInspect?.();
+      if (!summary) {
+        await vscode.window.showInformationMessage('Yisi AI: Ruyi CLI 不可用，或未安装。');
+        return;
+      }
+      await vscode.window.showInformationMessage(`Yisi AI · Ruyi 环境\n${summary}`);
+    } catch (error) {
+      await vscode.window.showWarningMessage(
+        'Yisi AI: Ruyi 环境检查失败。' + (error instanceof Error ? ` ${error.message}` : '')
+      );
+    }
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {

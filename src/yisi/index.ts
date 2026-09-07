@@ -184,7 +184,18 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
     modelControl,
     approvals,
     agentWorkspace.profile,
-    () => readContextUsage(sessions, providerCatalog, providerConfigurations)
+    () => readContextUsage(sessions, providerCatalog, providerConfigurations),
+    async () => {
+      try {
+        const workspace = selectLocalAgentWorkspace(vscode.workspace.workspaceFolders);
+        const root = workspace?.fsPath ?? process.cwd();
+        const commands = new CommandExecutionService(new NodeProcessRunner(), root);
+        const inspection = await new RuyiInspectionService(commands, new RuyiCliAdapter()).inspect(new AbortController().signal);
+        return inspection.summary;
+      } catch {
+        return null;
+      }
+    }
   );
   const yisiStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   yisiStatus.text = '$(yisi-ai)';
@@ -204,6 +215,7 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
     vscode.commands.registerCommand('yisiAI.generateReadme', () => chatView.runProjectDocTask('readme')),
     vscode.commands.registerCommand('yisiAI.generateApiDocs', () => chatView.runProjectDocTask('apiDocs')),
     vscode.commands.registerCommand('yisiAI.showEditJournal', () => showEditJournal(agentWorkspace.edits)),
+    vscode.commands.registerCommand('yisiAI.ruyi.check', () => chatView.runRuyiCheck()),
     vscode.commands.registerCommand('yisiAI.focus', () => revealYisiChat()),
     vscode.commands.registerCommand('yisiAI.resume', () => chatView.resumeUnfinished()),
     yisiStatus
