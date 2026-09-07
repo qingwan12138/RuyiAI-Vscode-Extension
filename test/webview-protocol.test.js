@@ -14,7 +14,8 @@ test('accepts every payload-free Webview request', () => {
     'stop',
     'continue',
     'addContext',
-    'clearContext'
+    'clearContext',
+    'ruyiInspect'
   ]) {
     assert.deepEqual(parseWebviewMessage({ type }), { type });
   }

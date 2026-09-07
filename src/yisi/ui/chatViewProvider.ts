@@ -365,6 +365,20 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
         await this.publishContextState();
         return;
 
+      case 'ruyiInspect': {
+        try {
+          const summary = await this.ruyiInspect?.();
+          await this.view?.webview.postMessage({
+            type: 'ruyiState',
+            available: summary !== null && summary !== undefined,
+            summary: summary ?? 'Ruyi CLI 不可用，或未安装。'
+          });
+        } catch {
+          await this.view?.webview.postMessage({ type: 'ruyiState', available: false, summary: 'Ruyi 环境检查失败。' });
+        }
+        return;
+      }
+
       case 'sendMessage': {
         void this.runChat(message.text);
         return;

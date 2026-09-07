@@ -22,7 +22,8 @@ export type WebviewMessage =
   | { type: 'modelControl.setSpeed'; value: 'standard' | 'fast' }
   | { type: 'modelControl.setTemperature'; value: number }
   | { type: 'modelControl.setMaxTokens'; value: number }
-  | { type: 'toolApprovalResponse'; requestId: string; approved: boolean };
+  | { type: 'toolApprovalResponse'; requestId: string; approved: boolean }
+  | { type: 'ruyiInspect' };
 
 export type HostMessage =
   | { type: 'sessionState'; sessions: unknown[]; activeSession: unknown }
@@ -36,6 +37,7 @@ export type HostMessage =
   | { type: 'contextState'; contexts: unknown[] }
   | { type: 'modelControl.state'; state: ModelControlState }
   | { type: 'contextUsage'; usage: ContextUsageState | null }
+  | { type: 'ruyiState'; available: boolean; summary: string }
   | { type: 'toolApprovalRequest'; requestId: string; message: string; detail: string; diff?: ApprovalDiffLine[] }
   | { type: 'agentToolCall'; id: string; name: string; input: unknown }
   | { type: 'agentToolResult'; id: string; name: string; outcome: 'succeeded' | 'failed'; summary: string };
@@ -54,7 +56,8 @@ const PAYLOAD_FREE_TYPES = new Set([
   'stop',
   'continue',
   'addContext',
-  'clearContext'
+  'clearContext',
+  'ruyiInspect'
 ]);
 
 export function parseWebviewMessage(value: unknown): WebviewMessage {

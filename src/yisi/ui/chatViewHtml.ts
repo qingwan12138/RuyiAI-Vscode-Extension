@@ -120,9 +120,41 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     }
 
     .top-actions {
+      position: relative;
       display: flex;
       align-items: center;
       gap: 2px;
+    }
+
+    .ruyi-popover {
+      position: absolute;
+      top: 36px;
+      right: 8px;
+      z-index: 30;
+      width: min(300px, calc(100% - 16px));
+      border: 1px solid var(--yisi-border);
+      border-radius: var(--yisi-radius-md);
+      background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+      color: var(--vscode-foreground);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+      padding: 8px 10px;
+    }
+    .ruyi-popover-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--vscode-descriptionForeground);
+      margin-bottom: 6px;
+    }
+    .ruyi-popover-body {
+      margin: 0;
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 11px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 220px;
+      overflow: auto;
     }
 
     .icon-button {
@@ -1010,6 +1042,11 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
         <button class="icon-button" id="homeButton" type="button" title="Back to main screen" aria-label="Back to main screen">⌂</button>
         <button class="icon-button" id="historyButton" type="button" title="Session history" aria-label="Session history">◷</button>
         <button class="icon-button" id="newChat" type="button" title="New session" aria-label="New session">＋</button>
+        <button class="icon-button" id="ruyiButton" type="button" title="Ruyi 环境" aria-label="Ruyi environment">◈</button>
+        <div class="ruyi-popover" id="ruyiPopover" hidden>
+          <div class="ruyi-popover-title">Ruyi 环境</div>
+          <pre class="ruyi-popover-body" id="ruyiBody">加载中…</pre>
+        </div>
       </div>
     </header>
 
@@ -1739,6 +1776,20 @@ ${permissionClientScript()}
       vscode.postMessage({ type: 'newChat' });
     });
 
+    const ruyiPopover = document.getElementById('ruyiPopover');
+    const ruyiBody = document.getElementById('ruyiBody');
+    document.getElementById('ruyiButton').addEventListener('click', () => {
+      ruyiPopover.hidden = false;
+      ruyiBody.textContent = '加载中…';
+      vscode.postMessage({ type: 'ruyiInspect' });
+    });
+    document.addEventListener('click', event => {
+      const button = document.getElementById('ruyiButton');
+      if (!ruyiPopover.hidden && button && !ruyiPopover.contains(event.target) && event.target !== button) {
+        ruyiPopover.hidden = true;
+      }
+    });
+
     document.getElementById('historyButton').addEventListener('click', () => {
       showHistory(historyPanel.hidden);
     });
@@ -1815,6 +1866,10 @@ ${permissionClientScript()}
 
       if (message.type === 'toolApprovalRequest') {
         renderApprovalCard(message);
+      }
+
+      if (message.type === 'ruyiState') {
+        if (ruyiBody) ruyiBody.textContent = typeof message.summary === 'string' ? message.summary : 'Ruyi 环境不可用。';
       }
 
       if (message.type === 'assistantStreamDelta') {

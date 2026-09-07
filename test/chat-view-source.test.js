@@ -70,6 +70,14 @@ test('agent tool activity is shown as step bubbles between the model text segmen
   assert.match(source, /tool-result\.ok/);
 });
 
+test('Ruyi state popover is wired (toolbar button + live state)', () => {
+  assert.match(source, /ruyiButton/);
+  assert.match(source, /ruyiPopover/);
+  assert.match(source, /ruyiInspect/);
+  assert.match(source, /ruyiState/);
+  assert.match(provider, /ruyiInspect/);
+});
+
 test('host surfaces run errors only after re-publishing session state', () => {
   assert.match(provider, /surfaceRunOutcome/);
   assert.match(provider, /status !== 'error'/);
