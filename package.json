@@ -5,6 +5,10 @@
   "description": "Closed-source TS/JS VS Code Coding Agent development baseline for RuyiSDK integration.",
   "version": "0.1.7",
   "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yisi-ai-local/yisi-ai.git"
+  },
   "engines": {
     "vscode": "^1.95.0"
   },
