@@ -13,6 +13,7 @@ import {
   createProviderConfiguration,
   providerKindRequiresCredential
 } from '../../domain/providerConfiguration';
+import { defaultModelsFor } from '../../domain/providerDefaults';
 import {
   LocalDevicePreset,
   LOCAL_DEVICE_PRESETS
@@ -49,6 +50,7 @@ const PROFILES: Record<ProviderKind, ProviderProfile> = {
     kind: 'deepseek',
     defaultName: 'DeepSeek',
     defaultBaseUrl: 'https://api.deepseek.com',
+    defaultModels: defaultModelsFor('deepseek'),
     capabilities: {
       toolCalling: true,
       temperature: true,
@@ -61,7 +63,7 @@ const PROFILES: Record<ProviderKind, ProviderProfile> = {
     kind: 'anthropic',
     defaultName: 'Anthropic',
     defaultBaseUrl: 'https://api.anthropic.com',
-    defaultModels: ['claude-sonnet-4-5', 'claude-opus-4-5', 'claude-haiku-4-5'],
+    defaultModels: defaultModelsFor('anthropic'),
     capabilities: {
       toolCalling: false,
       temperature: true,
