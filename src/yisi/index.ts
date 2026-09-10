@@ -336,7 +336,8 @@ async function createAgentWorkspace(approvals: ApprovalBroker, resolveCapabiliti
       workspace.fsPath,
       SESSION_WORKTREES_DIR,
       worktrees,
-      (root, uri) => buildAgentRunner(root, uri, approvals, git, worktrees, false, plan, resolveCapabilities, resolveHistory)
+      (root, uri) => buildAgentRunner(root, uri, approvals, git, worktrees, false, plan, resolveCapabilities, resolveHistory),
+      repo => git.isRepo(repo)
     );
     const mainFileSystem = await NodeWorkspaceFileSystem.create(workspace.fsPath);
     const profileService = new ProjectProfileService(mainFileSystem);

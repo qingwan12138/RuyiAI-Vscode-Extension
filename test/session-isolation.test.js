@@ -69,3 +69,28 @@ test('v0.4 DoD: two write sessions isolate onto distinct worktrees; the main tre
     fs.rmSync(repo, { recursive: true, force: true });
   }
 });
+
+test('a non-git workspace falls back to the shared runner instead of failing', async () => {
+  const worktrees = {
+    async createSessionWorktree() { throw new Error('Cannot create a git worktree outside a git repository.'); },
+    async remove() {}
+  };
+  const built = [];
+  const isolation = new SessionIsolationService(
+    'C:/not-a-repo', '/tmp/wt', worktrees,
+    async (root, uri) => { built.push(root); return { run: async () => 'x' }; },
+    async () => false // isRepo -> false
+  );
+  assert.equal(await isolation.resolve({ sessionId: 's-plain', mode: 'manual' }), undefined);
+  assert.equal(built.length, 0, 'no worktree attempted in a non-git workspace');
+});
+
+test('a worktree creation failure degrades to the shared runner (never fails the run)', async () => {
+  const worktrees = { async createSessionWorktree() { throw new Error('boom'); }, async remove() {} };
+  const isolation = new SessionIsolationService(
+    'C:/repo', '/tmp/wt', worktrees,
+    async () => ({ run: async () => 'x' }),
+    async () => true
+  );
+  assert.equal(await isolation.resolve({ sessionId: 's-fail', mode: 'acceptEdits' }), undefined);
+});
