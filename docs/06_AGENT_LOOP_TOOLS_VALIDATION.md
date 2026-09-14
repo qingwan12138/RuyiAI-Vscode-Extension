@@ -32,16 +32,21 @@ User Turn
 
 ## Agent 请求的 system prompt 组成
 
-每次 Agent 运行的消息数组由 `AgentToolLoop.run()` 组装，**两段 system 内容，位置不同**：
+每次 Agent 运行的消息数组由 `AgentToolLoop.run()` 组装，**三段 system 内容，位置不同**：
 
-| 位置 | 内容 | 是否随模式变化 | 构建者 |
+| 位置 | 内容 | 是否随模式/工作区变化 | 构建者 |
 |---|---|---|---|
 | **头部**（`messages[0]`） | **角色 + 工具使用纪律**：通识问题直接用自身知识回答、只在需要**本工作区事实**时才调工具、用最小工具集、不投机性探索、用用户的语言回答 | 否（稳定，可进缓存前缀） | `application/agent/agentSystemPrompt.ts` |
+| **紧随其后**（`messages[1]`，仅有指令文件时） | **项目指令**：工作区 `AGENTS.md` / `CLAUDE.md` / `YISI.md` 的约定，先命中者生效，上限 12000 字符 | 随工作区变化，但一个工作区内稳定（仍在缓存前缀内） | `application/agent/projectInstructions.ts` + `application/context/projectInstructionsService.ts`（ADR-0004） |
 | **历史之后、当前用户轮之前** | **权限模式简报**：当前模式允许什么、被拒之后怎么办、`request_permission` 的约束 | 是 | `application/agent/permissionModePrompt.ts` |
 
-**为什么必须两段都在**：agent 路径原先**没有任何 system prompt**（只有对话 + ~24 个工具定义 + `tool_choice: 'auto'`）。结果是问"请你介绍一下RISC-V吧"这种通识问题时，模型匹配到工具描述里的 "RISC-V" 字样，去调了 `ruyi_check` 和 `list_directory`——它不是在"思考要查环境"，而是**没有任何东西告诉它通识问题不需要工具**。修权限那次只补了模式简报，角色/纪律这段是后来补的。
+实际顺序：`[角色, 项目指令?, ...保留历史, 模式简报, 当前用户轮]`。
 
-**不要**把模式限制写进角色提示（那会让头部随模式变化、破坏缓存前缀，也是两种关注点的混淆）；**不要**把角色/纪律写进模式简报（会被当成随模式变化的东西重复发送）。守卫：`test/permission-mode-prompt.test.js` 断言头部恒为角色提示、简报紧随用户轮之前、二者内容互不越界。
+**为什么必须三段都在**：agent 路径原先**没有任何 system prompt**（只有对话 + ~24 个工具定义 + `tool_choice: 'auto'`）。结果是问"请你介绍一下RISC-V吧"这种通识问题时，模型匹配到工具描述里的 "RISC-V" 字样，去调了 `ruyi_check` 和 `list_directory`——它不是在"思考要查环境"，而是**没有任何东西告诉它通识问题不需要工具**。修权限那次只补了模式简报，角色/纪律这段是后来补的；项目约定则是第三块缺失的信息（CC 用 CLAUDE.md、Codex 用 AGENTS.md 补的就是这块）。
+
+**项目指令是工作区内容，不是操作者指令**：它被显式框定为不能改变工具集、权限规则或模式简报，与用户请求冲突时以用户为准。该框定只是声明，**强制力仍然只来自 PermissionEngine**（逐次判定，见 docs/07）——恶意仓库无法靠自己的 AGENTS.md 拿到任何越权。
+
+**不要**把模式限制写进角色提示（那会让头部随模式变化、破坏缓存前缀，也是两种关注点的混淆）；**不要**把角色/纪律写进模式简报（会被当成随模式变化的东西重复发送）。守卫：`test/permission-mode-prompt.test.js` 断言头部恒为角色提示、简报紧随用户轮之前、二者内容互不越界；`test/project-instructions.test.js` 断言项目指令落在角色提示之后、历史之前，且无指令文件时不新增任何 system 消息。
 
 ## 过程可见性：思考轨迹与可展开的步骤
 
@@ -63,6 +68,65 @@ User Turn
 
 ## Core Tools（建议阶段）
 ReadFile, ListDirectory, SearchText, SearchFiles, GetSymbols, ReadDiagnostics, ApplyPatch/EditFile/CreateFile/DeleteFile, RunCommand, StartProcess/StopProcess, GitStatus/GitDiff, Ruyi* tools。
+
+**MCP 桥接工具（`mcp__<server>__<tool>`，ADR-0005）**：由 `yisiAI.mcpServers` 配置的本地服务器贡献，运行时并入同一个 `ToolRegistry`（因此同样逐次过 `PermissionEngine`）。它们**不受执行根约束**（服务器是全局的，不随 worktree 变化），命名空间 `mcp__` 为保留前缀以防遮蔽内置工具。未分类工具的风险类固定为 `environmentChange` + `mutatesWorkspace: true`，是 loop bounded scope 接纳的四种组合之一；桥接层强制规范化这张表。
+
+## Hooks 在 loop 中的位置（ADR-0006）
+
+```
+工具解析 → bounded scope 检查 → [preToolUse hooks] → PermissionEngine → 审批卡片 → 执行 → [postToolUse hooks] → 工具结果入 messages
+```
+
+- **`preToolUse` 跑在权限判定之前**：它的用途就是"在执行前挡住"（文档化的护栏用法）。它可以 `deny`，也可以只加 `context`。
+- **它不能批准任何东西**：决策词汇只有 `allow`/`deny`，`allow` 之后引擎与审批卡片照常运行。
+- **hook 拒绝是独立理由 `hook`**，与 `policy`/`user`/`unavailable` 并列，且**不计入 `policyDenials`**——放宽模式解不开 hook，所以它不得解锁 `request_permission` 升级。模型收到的指引明确写了这一点。
+- **`postToolUse` 成功/失败都会跑**，其 `context` 通过 `withHookContext()` 作为 `hookContext` 字段并入工具结果 JSON（保持可解析），因此"改完跑 linter"的结果会进入下一轮模型可见的证据。
+- **Stop 优先**：hook 返回后立即 `signal.throwIfAborted()`，取消不会被伪装成护栏拒绝。
+- 守卫：`test/hooks.test.js`（含三条不变式的端到端用例）+ `test/hooks-process.test.js`。
+
+## Skills（ADR-0007）
+
+请求头部的第三块稳定内容（角色 → 项目指令 → **skill 目录**）。**上下文预算就是这条特性的设计核心**：
+
+- **目录常驻**：只有名称 + 一行描述，每条 ≤240 字符、整块 ≤4000 字符，超限截断带标记；**没有 `.yisi/skills/` 的工作区零成本**。
+- **正文按需**：单次 ≤16000；只有 `skill` 工具被调用、或用户用行首 `/name` 触发时才读。
+- 两条进入路径都不把正文写进会话：工具结果是数据；`/name` 把正文作为**当前轮的一条消息**插在用户轮之前（与权限简报同位），**会话里存的仍是用户原话**——否则一份 16k 的 skill 会在之后每一轮重发。
+- `skill` 工具是 `readOnly` + 非写（就是读一个工作区文件），因此 **Plan 模式下也可用**，且不新增任何权限面。skill 正文与目录都是工作区内容，注入时带"不能改变工具集/权限规则/模式简报"的框定。
+
+## Subagents（ADR-0008）
+
+`task` 工具让模型派一个**隔离子代理**：它在自己的 loop 里工作，**父上下文只收到 `report`**。
+
+- **只读**：子代理的 registry 是**过滤出来的**（`readOnly && !mutatesWorkspace && !permissionEscalation && !spawnsSubagent`）。因此"子代理不可能越过父权限"是**结构性**的——没有特权工具可调、没有升级工具可问、没有东西需要批准。
+- **子代理是普通工具 + 特殊执行体**，不是独立路径：它同样走 bounded scope → preToolUse hooks → `PermissionEngine` → 审批 → postToolUse hooks，只有执行那一步换成嵌套 loop。这样它自动继承取消、结果有界、步骤事件与后置 hook，也避免出现第二套权限逻辑。
+- **请求头部多一块**（紧随角色提示）：子代理简报，写明"你不是在跟用户说话、你只能观察、只有报告会回去"。
+- **隔离**：子代理只拿到 `prompt`（没有父对话历史），但共享工作区上下文（项目指令、skill 目录）与 hooks，并**继承父运行的权限模式**。
+- **回报边界**：只有 `report`（≤8000）回流；子代理的工具步骤事件带命名空间转发给 UI（`subagent:<描述>:<id>`），避免与父 transcript 的 callId 冲突。
+- **有界**：≤4 个子代理/运行、≤6 轮/子代理、**串行**执行；超预算终止运行。Stop 通过共用 `AbortSignal` 传播。
+
+## Checkpoints（ADR-0009）
+
+检查点不是 loop 的一部分，而是**围绕会话回合**的记录：`ChatService` 在每次请求开始时开一个回合边界，`WorkspaceEditService` 把每个成功改动记进当前回合（与 journal 同一处产生）。
+
+- **回退** = 撤销该回合及其之后的全部改动，按回合从新到旧、回合内从后到前执行逆操作；每个逆操作走**写入端口**，因此继承 stale guard（用户改过的文件被拒绝，绝不覆盖）。
+- **分叉** = 在检查点之前切开对话（保留更早的历史），代码原样保留。
+- 入口是命令 `yisiAI.checkpoints` + QuickPick；**不是 agent 工具**（用户撤销 agent，不受 agent 专属限制），因此不在工具清单里。
+
+## 待批准改动的并排 diff（ADR-0010）
+
+需要确认的文本编辑会在 **VS Code 原生 diff** 里并排打开整份文件（左=现状，右=批准后的内容），因此审批可以在**上下文里**判断，而不是只看 `-old / +new` 片段。
+
+- **它是视图，不是审批通道**：批准仍只发生在侧栏卡片；`ProposalDiffPresenter` 拿不到 `ApprovalBroker`（源码级断言），diff 在 `await` 决定**之前**以 fire-and-forget 打开。
+- 右侧由 `yisi-proposal` **虚拟文档**从内存提供：**批准前不落盘**。左侧在当前内容一致时用**真实文件**（保留语言与 git 装饰）。
+- **推演不可信就跳过**：`replace_text` 要求 `oldText` 在当前内容中恰好出现一次（与工具自身的唯一匹配一致）；不匹配/不唯一/读不到/超 512KB → 跳过并说明，绝不显示不会真正发生的结果。
+
+## Plan 文档化审阅（ADR-0011）
+
+Plan 模式的被审阅退出（`request_permission`）可携带 markdown `plan`，它经 `buildPlanDocument` 渲染成**可编辑文档**打开；用户决定后，`extractPlanFeedback` 把**被改动的行**作为反馈回给模型（批准附在工具结果里，拒绝附在拒绝理由里）。
+
+- **文档不是审批通道**：决定仍只在侧栏卡片；且批准仍须满足既有四处约束（有据可依、严格更宽、每运行一次、人来批）。
+- **反馈只回 diff**（≤2000 字符），不整份回传；反馈是**指导**，不放宽也不收紧引擎判定。
+- `ToolConfirmationPort.confirm` 返回 `boolean | {approved, feedback?}`，loop 归一化两种形态——纯布尔端口一行未改。
 
 ## Edit safety
 - edit 前记录文件版本/hash；写入前检查 stale write。

@@ -1,5 +1,7 @@
 # 21 — 按计划书（docs/12 Roadmap & DoD）已完成部分报告
 
+> **历史快照**：本报告的日期、分支与测试数字（410 tests）是 **2026-09-05 当日**的事实，保留原样以作为当时的证据。**当前状态**（分支、测试数、里程碑进度、新增能力与 ADR）请以 `docs/18_COMPATIBILITY_MATRIX.md` 与 `docs/12_ROADMAP_AND_DOD.md` 为准；两者与 `docs/22_HANDOVER.md` 的当前数字由 `test/docs-consistency.test.js` 守卫。
+
 - **报告日期**：2026-09-05
 - **仓库**：`C:\Users\86138\Desktop\0904_项目拓展\Yisi_AI_v0.1.7_vision_pdf_fix_source_with_git(1)`
 - **分支**：`fix/vision-pdf-runtime`（HEAD 共 142 个提交；未 push，远端仅存在 `origin/main`）

@@ -76,3 +76,56 @@ DoD：原 RuyiSDK regression + Yisi regression 全过；集成 diff 集中在 se
 当前实现状态（2026-09-05，本机可交付项已完成）：**VSIX 已在本机用 `@vscode/vsce` 成功打包**（`yisi-ai-dev-starter-0.1.7.vsix`，≈7.26MB；`*.vsix`/`dist/`/`node_modules/` 以 `.gitignore` 忽略、不入库；`src/test/docs/random.js` 经 `.vscodeignore` 排除，运行时依赖 pdfjs-dist/mammoth/read-excel-file/jszip 已捆绑）。**安装/使用/维护/升级说明** `docs/20_INSTALL_AND_MAINTENANCE.md`。**第三方 NOTICE** `THIRD_PARTY_NOTICES.md` 由 `test/dependency-notices.test.js` 强制守卫。**schema 冻结** (v1) 由 `test/session-schema.test.js` 守卫（未知版本拒载）。**测试报告** = `docs/18` 兼容矩阵（464 tests / 463 pass / 1 skip）+ 各 DoD e2e。**属发布环境/上游环境依赖**（本机无法完成）：在目标 Linux + 上游 `ruyisdk-vscode-extension` 上的正式合并、one-VSIX 集成、原 RuyiSDK regression、Linux LNX smoke 与最终发布（如正式发布则用 `--allow-missing-repository` 与 LICENSE 调整后重打包）。
 
 > v0.8（合并进 ruyisdk-vscode-extension / one VSIX / 原 RuyiSDK regression + Yisi regression 全过 / 集成 diff 集中在 seam）**需要上游 ruyisdk-vscode-extension 仓库**，属环境依赖，本机无法执行上游合并与回归，仅在代码 seam 层做自测准备；v0.9/v1.0 其余代码级项（性能、依赖、文档、NOTICE 核对、测试报告）可在本机完成，VSIX 打包与安装说明随交付一并补齐。
+
+## v0.11 Extension Layer（新增里程碑，2026-09-14 起）
+
+**背景**：与 Claude Code / Codex 对照后，Yisi 的缺口集中在**扩展层**（项目指令、Skills、Hooks、MCP），而不是 Agent 内核或权限模型。该里程碑只补扩展层：不改权限语义（每次调用仍逐次过 `PermissionEngine`）、不动 loop 判定、不引入 native 依赖。参考方式仍是 clean-room——只学公开文档描述的行为，不复制实现、文件格式或 prompt 文本（docs/04）。
+
+| 项 | 状态 | 说明 |
+| --- | --- | --- |
+| ① 项目指令文件（AGENTS.md / CLAUDE.md / YISI.md） | ✅ 已落地（2026-09-14） | 每轮运行读取执行根下的指令文件，作为 system 消息注入请求头部；先命中者生效、上限 12000 字符、失败不致命。见 ADR-0004 |
+| ② MCP 客户端 | ✅ 已落地（2026-09-14） | stdio + JSON-RPC 2.0（initialize / tools/list / tools/call）；工具命名空间 `mcp__<server>__<tool>`；未分类工具默认 `environmentChange`（Plan 拒绝、其余询问、Full Access 放行）；失败降级为零工具 + 状态；随扩展退出回收子进程。见 ADR-0005 |
+| ③ Hooks（生命周期事件） | ✅ 已落地（2026-09-14） | `preToolUse`（可拒绝，跑在权限判定之前）/ `postToolUse`（输出附加到工具结果）。**只能收紧，没有"批准"这个决策**；hook 拒绝是与 `policy` 并列的独立理由且**不解锁权限升级**；失败默认阻塞且必须可见。见 ADR-0006 |
+| ④ Skills（可复用知识包 + `/命令`） | ✅ 已落地（2026-09-14） | `.yisi/skills/`（`<name>.md` 或 `<name>/SKILL.md`）；**描述常驻（每条 240 / 整块 4000 上限）、正文按需（16000 上限）**；模型用 `skill` 工具自主加载（readOnly，Plan 也能用），用户用行首 `/name` 触发——**正文只进入本轮、会话只存用户原话**。见 ADR-0007 |
+
+**DoD（本里程碑）**：四项各自具备（a）实现、（b）单元/集成测试、（c）文档与 ADR、（d）至少一条可复现的验证证据；且全量测试不回归。
+
+**明确不做**（理由见 docs/04 结论）：OS 级沙箱轴（需 native 依赖，违反 docs/17）、持久化 allow 规则（CC 自陈为缺陷高发区）、计划审阅面板（当前复用通用审批卡片）。
+
+**已完成的验证证据（①）**：`test/project-instructions.test.js`（15 用例）+ 全量 **484 tests / 483 pass / 0 fail / 1 skip**。
+**已完成的验证证据（②）**：`test/mcp-client.test.js`（25）+ `test/mcp-stdio-transport.test.js`（8，真实子进程）+ `test/mcp-configuration.test.js`（10）+ 全量 **527 tests / 526 pass / 0 fail / 1 skip**。
+**已完成的验证证据（③）**：`test/hooks.test.js`（18，含经真实 loop 的三条不变式）+ `test/hooks-process.test.js`（14，真实子进程）+ 全量 **559 tests / 558 pass / 0 fail / 1 skip**。
+**已完成的验证证据（④）**：`test/skills.test.js`（20，含经真实 loop 与 ChatService 的端到端）+ 全量 **579 tests / 578 pass / 0 fail / 1 skip**。
+
+**v0.11 里程碑状态：四项全部落地**（①项目指令文件 ②MCP ③Hooks ④Skills），新增 4 份 ADR（0004–0007）与 4 个测试文件组；测试从 469 增至 579。四项共同遵守的边界：不改权限语义（每次调用仍逐次过 `PermissionEngine`）、不引入 native 依赖、失败一律降级而不失败运行、工作区内容一律显式框定为"不能放宽任何闸门"。
+
+## v0.12 Orchestration & Experience（新增里程碑，2026-09-14 起）
+
+**背景**：扩展层补完后，与 CC / Codex 的剩余差距集中在**编排层**（子代理、检查点）与 **IDE 体验层**（并排 diff、计划审阅面板）。本里程碑的每项都要动既有假设，因此每项先写 ADR 再动代码。
+
+| 项 | 状态 | 说明 |
+| --- | --- | --- |
+| ① Subagents（隔离子代理） | ✅ 已落地（2026-09-14） | `task` 工具：子代理在**自己的上下文**里跑、**只回报告**；**只读**（工具集被过滤，因此不可能越过父权限）；继承父运行模式与 hooks；预算 4 个/运行、6 轮/子代理；Stop 传播。见 ADR-0008 |
+| ② Checkpoints / rewind | ✅ 已落地（2026-09-14） | 回合检查点：**回滚代码**（回到检查点 = 撤销该回合及其之后，逆操作走写入端口因而**继承 stale guard**，用户改过的文件被拒绝而非覆盖）、**从此处分叉会话**、或两者；命令 `yisiAI.checkpoints`。有界（12 回合/40 改动/64KB 文本），放不下的记成"不可回退 + 原因"；**检查点在内存**，重载后消失。见 ADR-0009 |
+| ③ 并排 diff 编辑器 | ✅ 已落地（2026-09-14） | 待批准的文本改动在 **VS Code 原生 diff** 里并排打开整份文件（左=现状，右=批准后的内容）。**它是视图不是审批通道**：批准仍只在侧栏卡片，diff 先打开再等待决定，打开失败不影响审批。推演不可信（不再唯一匹配/读不到/超 512KB）时**跳过并说明**，绝不渲染假的"未来"。见 ADR-0010 |
+| ④ Plan 文档化审阅 | ✅ 已落地（2026-09-14） | `request_permission` 可带 markdown `plan`；它被渲染成**可编辑的文档**打开（头部写明"在侧栏决定、可直接在文档里评论"），用户改动的内容以 `-`/`+` **作为反馈回给模型**（批准与拒绝都回）。文档**不是审批通道**；`confirm` 可返回 `boolean \| {approved, feedback?}`，纯布尔端口不受影响。见 ADR-0011 |
+
+**已完成的验证证据（①）**：`test/subagents.test.js`（14，含隔离/上限/取消/命名空间转发）+ 全量 **593 tests / 592 pass / 0 fail / 1 skip**。
+**已完成的验证证据（②）**：`test/checkpoints.test.js`（15，含经真实 `WorkspaceEditService` 的回退与拒绝覆盖）+ 全量 **608 tests / 607 pass / 0 fail / 1 skip**。
+**已完成的验证证据（③）**：`test/proposal-diff.test.js`（10，含两条源码级不变式）+ 全量 **618 tests / 617 pass / 0 fail / 1 skip**。
+**已完成的验证证据（④）**：`test/plan-review.test.js`（11，含经真实 loop 的批准/拒绝反馈路径）+ 全量 **629 tests / 628 pass / 0 fail / 1 skip**。
+
+**v0.12 里程碑状态：四项全部落地**（①Subagents ②Checkpoints/rewind ③并排 diff ④Plan 文档化审阅），新增 4 份 ADR（0008–0011）；测试从 579 增至 629。四项共同遵守的边界：**没有新增任何审批入口**（卡片仍是唯一闸门）、不引入 native 依赖、失败一律降级而不失败运行、写路径全部继承 stale guard。
+
+## v0.13 Heavy Engineering（新增里程碑，2026-09-14 起）
+
+| 项 | 状态 | 说明 |
+| --- | --- | --- |
+| ① 联网搜索/抓取 | ⛔ **待决策** | `docs/14` 已评估 8 家供应商；智谱需算法备案（产品/法务决定）。按 AGENTS.md"未定后端前不写代码"，**不先行实现** |
+| ② Headless / CI 入口 | ✅ 已落地（2026-09-14） | `runHeadlessTask()` + `yisi-headless` CLI：同一个 Agent 核心在无 VS Code 环境运行。**默认只读（plan）**；写权限需显式 `--allow-write`（转 `manual` + 允许清单审批器）；**`destructive`/`credentialSensitive` 永远无通道（失败关闭）**；退出码 0/1/2 区分完成/停止/用错；密钥只从环境变量读。见 ADR-0012 |
+| ③ 云任务交接 | ⬜ 未开始 | 把任务交给远端执行再取回结果 |
+| ④ SDK 对外接口 | ⬜ 未开始 | ② 已提供编程入口；稳定的对外契约与版本化仍需独立设计 |
+
+**已完成的验证证据（②）**：`test/headless.test.js`（14，含**无 VS Code 的真实目录端到端**：默认不能写、opt-in 后真的写盘）+ 全量 **643 tests / 642 pass / 0 fail / 1 skip**。
+
+**顺带修复（v0.7 的一个遗留缺口）**：长会话压缩原先**只**在 provider 声明 `capabilities.maxContextTokens` 时生效，而 UI 的上下文环会回退到 domain 的已知模型族估算表——于是"环显示已用 80%"与"从不压缩"可以同时成立，最后在 v0.7 DoD 承诺不崩的地方溢出。现在 `ChatServiceOptions.contextWindow` 接受一个**与上下文环同源**的同步估算（provider 声明仍优先；未知模型仍返回 undefined = 不压缩，行为不变；估算函数抛错也不影响发送）。守卫：`test/context-window-fallback.test.js`（6）。全量 **659 tests / 658 pass / 0 fail / 1 skip**。

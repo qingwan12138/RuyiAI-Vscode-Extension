@@ -12,6 +12,19 @@ Yisi AI 是面向 RuyiSDK / RISC-V 开发场景的 VS Code Coding Agent。最终
 - **v0.5/v0.6 Ruyi Typed/Workflow**：`ruyi_check`/`ruyi_manage`（porcelain，环境变更门控）/`ruyi_workflow`（前置规划）。
 - **v0.7 Context & Mature Agent**：context 压缩防溢出（`ContextCompactor`）、`repo_index` 有界索引、`plan_todo`、`model_capabilities` 能力降级。
 - **v0.9 RC**：日志/错误密钥脱敏（`SecretRedactor`）、依赖/许可证 NOTICES 守卫、schema/迁移守卫、性能基线。
+- **v0.11 扩展层（已完成）**：**项目指令文件**——每次 Agent 运行读取执行根下的 `AGENTS.md` / `CLAUDE.md` / `YISI.md`（先命中者生效）并注入请求头部，让仓库自己的约定（用什么包管理器、怎么跑测试）无需每次口头重复。它是工作区内容，**不能**改变权限规则（见 `docs/decisions/ADR-0004-project-instructions.md`）。**MCP 客户端**——`yisiAI.mcpServers` 里的本地服务器以 stdio + JSON-RPC 暴露为 `mcp__<server>__<tool>` 工具；未分类的 MCP 工具按 `environmentChange` 处理（Plan 拒绝、其余询问、Full Access 放行），可按工具收窄；连接失败降级为零工具而不是让运行失败（见 `docs/decisions/ADR-0005-mcp-client.md`）。**Hooks**——`yisiAI.hooks` 配置的本地脚本在 `preToolUse`（可拒绝，跑在权限判定之前）与 `postToolUse`（输出喂回模型，例如跑 linter）运行；**hook 只能收紧**，它没有"批准"这个决策，也不会跳过权限引擎，且 hook 拒绝不被算作策略拒绝（放宽模式解不开它）（见 `docs/decisions/ADR-0006-hooks.md`）。**Skills**——`.yisi/skills/` 下的 Markdown 知识包：**描述常驻（每条 240 / 整块 4000 上限）、正文按需（16000 上限）**，模型可自行加载，也可用**行首 `/name`** 触发；正文只进入本轮、会话只存原话，因此一份长 skill 不会在之后每轮重发（见 `docs/decisions/ADR-0007-skills.md`）。**v0.11 四项已全部落地。**
+
+## v0.12 编排与体验层（进行中）
+
+- **Subagents**：`task` 工具派发**只读**子代理——它在自己的上下文里干活，**只把报告交回**（父对话不下传、子代理正文不回流）。工具集被过滤成只读观察者，且移除升级工具与自身，因此"子代理不可能越过父权限"是结构性保证。≤4 个/运行、≤6 轮/子代理、串行、Stop 传播（见 `docs/decisions/ADR-0008-subagents.md`）。
+- **Checkpoints / rewind**：每个请求开一个检查点，`Yisi AI: Checkpoints — Rewind or Fork` 可选择**回滚代码到此处**（撤销该回合及其之后的改动）、**从此处分叉会话**、或两者。回退走写入端口因而**继承 stale guard**——用户改过的文件被拒绝并如实报告，**绝不覆盖你的工作**（见 `docs/decisions/ADR-0009-checkpoints.md`）。
+- **并排 diff**：待批准的文本改动在 **VS Code 原生 diff** 里并排打开整份文件（左=现状，右=批准后的内容）。**它只是视图**——批准仍只在侧栏卡片，且推演不可信时跳过而不是显示一个不会真正发生的结果（见 `docs/decisions/ADR-0010-proposal-diff.md`）。
+- **Plan 文档化审阅**：Plan 模式下模型可提交 markdown 计划，它被打开成**可编辑文档**——你可以在里面直接加注释，改动会作为反馈回给模型（**批准与拒绝都回**）。文档本身不决定任何事，决定仍在侧栏（见 `docs/decisions/ADR-0011-plan-review.md`）。
+
+## v0.13 重工程层（进行中）
+
+- **Headless / CI**：同一个 Agent 核心可在**无 VS Code** 环境运行（`runHeadlessTask()` 与 `yisi-headless` CLI）。**默认只读**（`plan`，无审批通道）；写权限要显式 `--allow-write`；**`destructive`/`credentialSensitive` 永远失败关闭**；密钥只从环境变量读；退出码 0/1/2 区分完成、停止、用错（见 `docs/decisions/ADR-0012-headless.md`）。
+- **联网**：仍**卡在产品/法务决策**（`docs/14` 已评估 8 家供应商），未实现。
 
 > 进度与 DoD 见 `docs/12_ROADMAP_AND_DOD.md`；兼容矩阵见 `docs/18_COMPATIBILITY_MATRIX.md`。环境依赖的验收项（真实云账号联网、真实 Ruyi fixture、上游 ruyiSDK 合并、Linux LNX smoke、VSIX 发布）见 `docs/18`。
 
