@@ -76,3 +76,34 @@ Apache-2.0/MIT 等许可证可能允许商业闭源组合，但会带来 attribu
 - “No source copied”
 
 不要在仓库里保存第三方源文件作为“参考”。
+
+---
+
+## 参考记录：审批 / 权限模型（2026-09-14）
+
+目的：弄清 Codex / Claude Code / DeepSeek Harness 各自如何处理"哪些动作要问、被拒之后怎么办"，据此调整 Yisi。**只研究公开文档描述的行为与设计，未复制任何源码、prompt 或品牌资产。**
+
+### DeepSeek Harness（`@deepseek-ai/dsh` 0.1.5-rc.1）
+
+来源：本机安装包内各插件自带的公开 README（`node_modules/@deepseek-ai/dsh-{permission-presets,user-approval,sandbox-policy,plan-mode,client-ui-approval}/README.md`），以及 https://deepseek-harness.github.io/deepseek-harness/en/guide/quickstart 。日期 2026-09-14，版本 `0.1.5-rc.1`。
+
+观察到的行为 / 架构思想：
+1. **两个正交的旋钮**，而不是一个滑杆：*sandbox mode*（文件效果，`read-only` / `workspace-write` / `danger-full-access`，缺省 `read-only` 失败安全）与 *approval policy*（`ask` / `never`，缺省 `ask`）。sandbox 明确只管文件效果，网络与进程不在其词汇内（列为已知限制）。
+2. **用户界面只有一个选择器**：*permission presets* 把 sandbox + approval 打包成命名预设（`workspace-write` = {sandbox: workspace-write, approval: ask}）。当两个旋钮的组合不匹配任何预设时显示派生的 `custom`（只读展示，不可选中/持久化）。
+3. **被拒不是运行失败，而是工具结果**：模型看到的是允许/拒绝/取消/不可用这几种**工具结局**；"a rejection may replace a normal tool result with a small retained error"。`ask` 无可用应答者时解析为 `unavailable` → 动作失败关闭（fail closed），但**对话继续**。
+4. **模型会被告知当前策略**：`approval:policy` 与 `sandbox:policy` 作为运行时上下文快照注入；策略变更时**在保留历史之后追加一份新的完整快照**，而不是改写稳定前缀——理由是 KV cache 稳定性（"The stable system prompt remains byte-identical across mode changes"）。
+5. **plan mode 不是强制机制，只是引导**："It does not restrict the agent: every tool stays callable"；"Guidance, not enforcement"。真正的限制由 sandbox 与 approval 负责。plan 通过一个 prompt section 注入引导文本（first-party prompt order 500）。
+6. **plan 有一个"被审阅的退出"**：agent 用专门的 `exit_plan_mode` 工具提交 markdown 计划，用户选 **Approve**（离开 plan 模式）或 **Keep planning**（带反馈打回）。该工具在两种状态下都注册，因此进出 plan 只改 prompt section、不改工具目录（同样是 KV cache 考量）。无交互通道时该调用失败关闭，`/plan off` 仍是手动出口。
+7. **只读策略鼓励"先试再说"**：read-only 的策略文本明确告诉模型 *"Do not refuse a required modification from this policy alone: try an available tool normally and follow any denial and escalation guidance it returns."*
+8. **审批只能一次性**：结局词汇含 `allowed-once`，但**没有 allow-always、没有记忆规则、没有撤销、没有 grant store**；客户端 UI 也只暴露 allow-once 与 reject。
+
+由此推导的 Yisi 需求（**独立实现，不复制**）：
+- Y-1：策略拒绝与用户拒绝都应作为**工具结局**回给模型，而不是终止整轮；终止只保留给协议级违规（未知工具、超出有界范围、重复调用、预算耗尽）。
+- Y-2：模型必须知道当前模式（Yisi 已做：`permissionModePrompt.ts`），但措辞应改为"正常尝试、按拒绝指引调整"，因为拒绝在 Y-1 之后不再致命；plan 模式例外，仍以"先给方案"为主。
+- Y-3：Yisi 的单选择器方向**与 dsh 的 preset 一致**，无需拆成两个旋钮暴露给用户。
+- Y-4：Yisi 目前**没有** dsh 意义上的第二根轴（只有 worktree 隔离，不限制文件效果）；是否引入 `read-only` 这类技术边界需另行决策。
+- Y-5：plan 模式缺"被审阅的退出"——值得补一个提交计划并请用户批准的出口。
+- Y-6：审批卡片一次性（Approve / 拒绝）**已与 dsh 对齐**，不需要加"总是允许"。
+
+未复制任何源码、prompt 文本或 UI 资产；上表中的英文引文取自公开 README 以佐证行为，Yisi 的实现将自行撰写措辞与结构。
+
