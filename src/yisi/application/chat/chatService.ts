@@ -5,6 +5,7 @@ import { ConversationItem, FileContextReference, PermissionMode, parseContextRef
 import { AttachmentContext, AttachmentImagePayload } from '../../context/attachment/attachmentTypes';
 import { AttachmentRehydrator } from '../attachment/attachmentService';
 import { IdentityQuestionPolicy, isIdentityQuestion } from './identityQuestion';
+import { createSecretRedactor } from '../security/secretRedactor';
 import {
   SessionAutoTitlePolicy,
   buildSessionTitleMessages,
@@ -164,10 +165,9 @@ export class ChatService {
 
   /**
    * Names a session from its first exchange, so the history list reads as tasks
-   * instead of a column of "New Chat". Best-effort by design: a title is a
-   * convenience, so a provider failure, an abort, or a model that answers with
-   * prose leaves the placeholder in place and never turns a run that succeeded
-   * into a failed one.
+   * instead of a column of "New Chat". Best-effort by design: a provider failure,
+   * an abort, or a model that answers with prose leaves the placeholder in place
+   * and never turns a run that succeeded into a failed one.
    *
    * The request is bare — a system instruction plus the first exchange, no tools
    * and no replayed history — and its stream is discarded rather than shown.
@@ -185,18 +185,32 @@ export class ChatService {
       // than naming a session that is no longer the one being talked about.
       if (session.id !== sessionId) return;
       if (!shouldGenerateSessionTitle(session)) return;
+      // Deliberately no maxTokens cap. DeepSeek's current models default to
+      // thinking mode, the reasoning arrives as `reasoning_content` rather than
+      // `content`, and the provider treats a stream with no content at all as an
+      // empty response. A small cap is therefore spent on reasoning and leaves
+      // no title behind — which is exactly how sessions silently stayed at
+      // "New Chat". The system instruction is what keeps the answer short.
       const raw = await streamChatText(
         provider,
         model,
         buildSessionTitleMessages(session.items),
-        { temperature: 0, maxTokens: 32 },
+        { temperature: 0 },
         () => undefined,
         signal
       );
       const title = parseSessionTitle(raw);
-      if (title) await this.sessions.setAiTitle(sessionId, title);
-    } catch {
-      // Best effort: keep the placeholder title.
+      if (!title) {
+        console.warn(
+          `[Yisi AI] Session auto-title produced no usable title (reply was ${raw.length} character(s)).`
+        );
+        return;
+      }
+      await this.sessions.setAiTitle(sessionId, title);
+    } catch (error) {
+      // Best effort — the placeholder stays — but never silently: an empty
+      // stream or a rejected request has to be diagnosable from the log.
+      console.warn(`[Yisi AI] Session auto-title failed: ${describeAutoTitleError(error)}`);
     }
   }
 
@@ -353,4 +367,15 @@ async function streamChatText(
     onDelta(delta.text);
   }
   return response;
+}
+
+const autoTitleRedactor = createSecretRedactor();
+
+/** A titling failure is only ever logged, so redact it before it reaches the log. */
+function describeAutoTitleError(error: unknown): string {
+  if (error instanceof Error) {
+    const message = autoTitleRedactor.censor((error.message || '').slice(0, 200));
+    return message ? `${error.name}: ${message}` : error.name || 'Error';
+  }
+  return 'unknown error';
 }

@@ -69,6 +69,19 @@ function send(chat, text) {
   return chat.send(text, () => undefined, new AbortController().signal);
 }
 
+/** Runs `action` with console.warn captured, returning the warnings it logged. */
+async function capturingWarnings(action) {
+  const warnings = [];
+  const original = console.warn;
+  console.warn = message => warnings.push(String(message));
+  try {
+    await action();
+  } finally {
+    console.warn = original;
+  }
+  return warnings;
+}
+
 test('a session is named from its first exchange by a bare extra request', async () => {
   const { chat, sessions, provider } = createHarness({ autoTitle: { enabled: true } });
   await seed(sessions);
@@ -90,7 +103,11 @@ test('a session is named from its first exchange by a bare extra request', async
   assert.match(titleCall.messages[1].content, /这是模型的回答/);
   assert.equal(titleCall.tools, undefined, 'no agent tools on a titling request');
   assert.equal(titleCall.temperature, 0);
-  assert.ok(titleCall.maxTokens > 0 && titleCall.maxTokens <= 64, 'titles stay cheap');
+  // Deliberately uncapped. The current DeepSeek models default to thinking mode,
+  // the reasoning streams as `reasoning_content` rather than `content`, and the
+  // provider calls a content-less stream an empty response — so a small cap is
+  // spent on reasoning and no title ever arrives.
+  assert.equal(titleCall.maxTokens, undefined);
 });
 
 test('the session is not renamed a second time', async () => {
@@ -141,28 +158,38 @@ test("a title the user set is never overwritten", async () => {
   assert.equal(sessions.getActiveSession().titleSource, 'manual');
 });
 
-test('a failed titling request leaves the placeholder and never fails the run', async () => {
+test('a failed titling request is logged instead of failing the run silently', async () => {
   const { chat, sessions } = createHarness({ autoTitle: { enabled: true }, failOn: 1 });
   await seed(sessions);
 
-  await send(chat, '帮我修复这个构建错误');
+  const warnings = await capturingWarnings(() => send(chat, '帮我修复这个构建错误'));
 
   const session = sessions.getActiveSession();
   assert.equal(session.title, 'New Chat');
   assert.equal(session.titleSource, 'fallback');
   assert.equal(session.status, 'idle', 'the run itself still completed');
   assert.equal(session.items.length, 2, 'the reply was persisted');
+  // The failure has to be diagnosable: an empty provider stream is the exact
+  // symptom that used to leave sessions named "New Chat" with no explanation.
+  assert.ok(
+    warnings.some(warning => /auto-title failed/i.test(warning)),
+    `expected a diagnostic warning, got ${JSON.stringify(warnings)}`
+  );
 });
 
-test('an unusable titling reply leaves the placeholder title', async () => {
+test('an unusable titling reply is reported, not silently ignored', async () => {
   const { chat, sessions } = createHarness({
     autoTitle: { enabled: true },
     replies: ['这是模型的回答', '   \n  ']
   });
   await seed(sessions);
 
-  await send(chat, '帮我修复这个构建错误');
+  const warnings = await capturingWarnings(() => send(chat, '帮我修复这个构建错误'));
 
   assert.equal(sessions.getActiveSession().title, 'New Chat');
   assert.equal(sessions.getActiveSession().titleSource, 'fallback');
+  assert.ok(
+    warnings.some(warning => /no usable title/i.test(warning)),
+    `expected a diagnostic warning, got ${JSON.stringify(warnings)}`
+  );
 });
