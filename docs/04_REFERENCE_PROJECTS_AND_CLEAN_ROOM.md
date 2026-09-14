@@ -106,4 +106,34 @@ Apache-2.0/MIT 等许可证可能允许商业闭源组合，但会带来 attribu
 - Y-6：审批卡片一次性（Approve / 拒绝）**已与 dsh 对齐**，不需要加"总是允许"。
 
 未复制任何源码、prompt 文本或 UI 资产；上表中的英文引文取自公开 README 以佐证行为，Yisi 的实现将自行撰写措辞与结构。
+（注：研究过程中子代理另写过一份 444 行的详细报告到 `docs/research/`，已按 clean-room 流程删除——第 3 步要求"关闭参考源码后独立实现"，把参考方的详细设计描述留在实现旁边正是该流程要避免的；此处只保留行为级记录。）
+
+### OpenAI Codex（`codex-rs`，2026-09-14）
+
+来源：官方文档站点（`learn.chatgpt.com/docs/*`，原 `developers.openai.com/codex/*` 已重定向）、以及 `openai/codex` 各历史 tag 的公开 README/文档（`rust-v0.2.0` / `v0.10.0` / `v0.30.0`——旧命名只在这些 tag 里有记录）。行为描述，未复制代码或 prompt。
+
+观察到的行为 / 架构思想：
+1. **两根轴，且官方明确解释为什么分开**：sandbox 定义**技术边界**，approval policy 决定**何时必须停下来问**。原文立场：sandbox 存在的理由之一就是**缓解审批疲劳**，让信任模型建立在"被强制的限制"而非"模型的意图"上。
+2. **approval 取值**（现状）：`on-request` | `never` | `granular{…}`；`untrusted` 已**不支持**、`on-failure` 已**废弃**。另有独立键 `approvals_reviewer`（谁来看，不改变 sandbox）。历史命名链：`suggest`/`auto-edit`/`full-auto` → `untrusted`/`on-failure`/`on-request`/`never` → 现状。
+3. **sandbox 取值**：`read-only` / `workspace-write` / `danger-full-access`。`workspace-write` 下**网络默认关闭**（需显式开启）；`.git`、`.agents`、`.codex` 递归只读（因此 `git commit` 可能需要升级）。**不可强制时失败关闭**——"refuses to run the command instead of silently running it unsandboxed"（拒绝执行，而不是偷偷不加沙箱地执行）。
+4. **拒绝是"单个条目的终态"，不是会话失败**：条目以 `completed | failed | declined` 结束，**理由回给模型**，对话继续。自动审查的拒绝额外附带"不要绕过、只在有实质更安全替代时才继续，否则停下来问用户"。另有**每轮熔断**：连续 3 次拒绝、或最近 50 次审查中 10 次拒绝 → 中断本轮。
+5. **升级是结构化请求**：携带 reason、命令、cwd、可见的决策集（accept / acceptForSession / decline / cancel / acceptWithExecpolicyAmendment），客户端**只返回被授予的子集**，作用域默认 `turn`（可选 `session`）。网络授权按目标（host/protocol/port）分组，一次提示可放行多个排队请求。
+6. **命令级规则**：`prefix_rule(pattern, decision, …)`，decision = `allow`（免问、沙箱外执行）/ `prompt` / `forbidden`，**最严者胜**（forbidden > prompt > allow）；精确前缀匹配；`bash -c` 线性链会被拆成逐条评估（防止把危险命令夹带在允许命令旁边），带重定向/替换/glob/控制流时整条保守评估。**记住的允许写进用户级规则文件，且写入前展示规则给用户确认**。
+7. **UI**：权限控件在**composer 下方**；`/permissions`（选择器）、`/status`（显示当前 approval policy 与可写根）、`/debug-config`；启动时对 git 仓库推荐 Auto（workspace-write + on-request），否则 read-only。
+8. **官方自陈的坑**：审批疲劳是"沙箱存在的理由"；通配 allow 规则太宽；**"审批提示显示的是命令字符串，而不是它真正能触达什么"（审批提示不是沙箱）**；`.git` 只读导致 `git commit` 升级令人困惑；网络开启但无代理 = 无限制出站且域名规则失效。
+
+由此推导的 Yisi 需求：见下方"三家收敛"。
+
+### 三家收敛（DeepSeek Harness / Codex / Claude Code）
+
+| 维度 | 三家的一致结论 |
+|---|---|
+| **被拒之后** | **三家一致：拒绝是"单次调用/单个条目"的结局回给模型，运行继续**，而不是终止整轮。（CC 原文："Claude shouldn't halt and wait for input; it should recover and try a safer approach where one exists."） |
+| **必须有界** | **三家一致：继续但要有限额**。CC：连续 3 次或累计 20 次拒绝 → 停下升级给人（无头模式直接终止进程）；Codex：连续 3 次或最近 50 次内 10 次 → 中断本轮；DSH：同一轮内**仅一次**、且必须"有据可依 + 严格更宽 + 人来批"的升级重试。 |
+| **要有恢复路径** | DSH 明确记录：**没有恢复路径的拒绝是死路，会逼用户全局放开更宽的档位，反而毁掉沙箱**。Codex/CC 同样把拒绝与一次升级/重试配对。 |
+| **模型是否被告知** | DSH：是，且**刻意不放进 system prompt**（早期放进去导致"soft lockout"——模型不再尝试"被拒但可升级"的工作，出现零工具调用的空转）；CC：无头模式下明确告知"没人能批准、不要重试"；Codex：自动审查的拒绝理由会回给模型，**开局是否告知模式未见文档**。 |
+| **两根轴 vs 一个滑杆** | Codex 与 DSH 都是**两根独立的轴**（技术边界 + 何时问），但**都再打包成一个用户可见的选择器**（Codex 的权限配置档 / DSH 的 permission preset）。→ Yisi 的单选择器 5 档方向正确。 |
+| **allow-always** | DSH 没有（存储/作用域/撤销未设计）；Codex 有（前缀规则、持久、写入前给用户看）；CC 有（allow/ask/deny 规则表）。→ 能做，但要有"可审查 + 前缀限定 + 最严者胜"的语义。 |
+| **plan 模式** | DSH：plan **只是引导、不是强制**，且有"被审阅的退出"工具；CC：有 plan 模式与退出/审批机制；Codex：无 plan 概念。 |
+
 
