@@ -20,5 +20,12 @@ export interface YisiTool<TInput = unknown, TResult = unknown> {
    * itself never executes and its risk class never decides anything.
    */
   permissionEscalation?: boolean;
+  /**
+   * The tool runs a nested agent loop instead of doing work, so the loop
+   * intercepts it (a plain `execute` has no access to the provider, the registry
+   * or the mode). Like `permissionEscalation`, this marker is what the loop keys
+   * on — never a hardcoded tool name.
+   */
+  spawnsSubagent?: boolean;
   execute(input: TInput, context: ToolExecutionContext): Promise<TResult>;
 }

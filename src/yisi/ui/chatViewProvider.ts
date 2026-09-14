@@ -115,6 +115,14 @@ export class YisiChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
+   * Re-reads session state into the view. Used after an out-of-band change the
+   * view did not initiate — a checkpoint fork switching the active session.
+   */
+  async reloadFromSessions(): Promise<void> {
+    await this.publishState();
+  }
+
+  /**
    * Soft resume: after a VS Code reload/interrupt that left a session running or
    * interrupted, offer to re-run its last user message. Never restores a
    * long-lived process automatically (per AGENTS.md) — this only re-sends the

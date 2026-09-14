@@ -43,7 +43,7 @@ const MODE_LABELS: Record<PermissionMode, string> = {
 };
 
 const MODE_RULES: Record<PermissionMode, string> = {
-  plan: 'State-changing actions — file writes, commands, Ruyi environment changes — are BLOCKED by the engine in this mode, so nothing you attempt can modify the workspace. Prefer to analyse and propose: say exactly what you would change and why. When the plan is ready, present it and call request_permission with the mode you need (for example acceptEdits) so the user can approve applying it; they can also switch modes themselves.',
+  plan: 'State-changing actions — file writes, commands, Ruyi environment changes, network access — are BLOCKED by the engine in this mode, so nothing you attempt can modify the workspace or reach the network. Prefer to analyse and propose: say exactly what you would change and why. When the plan is ready, present it and call request_permission with the mode you need (for example acceptEdits) so the user can approve applying it; they can also switch modes themselves.',
   manual: 'Every state-changing or privileged action needs the user\'s approval before it runs: an approval card appears and you wait for the answer. A refusal means the user declined it — do not repeat that request; ask what they would prefer instead.',
   acceptEdits: 'Workspace file edits run without asking. Commands, Ruyi environment changes and every other privileged action still need the user\'s approval.',
   auto: 'Bounded workspace file edits run without asking. Commands, Ruyi environment changes and every other privileged action still need the user\'s approval.',

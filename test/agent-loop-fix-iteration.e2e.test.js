@@ -20,10 +20,9 @@ const { WorkspaceEditService, createWorkspaceEditTool, createWorkspaceFileTool }
 const { PermissionEngine } = require('../dist/yisi/permissions/permissionEngine');
 const { ToolRegistry } = require('../dist/yisi/application/agent/toolRegistry');
 const { AgentChatRunner } = require('../dist/yisi/application/agent/agentChatRunner');
+const { copyFixture } = require('./support/fixtureCopy');
 
-const FIXTURE = path.join(__dirname, 'fixtures', 'agent-loop-fix-demo');
-const WORKSPACE_URI = pathToFileURL(FIXTURE).href;
-const CALC = path.join(FIXTURE, 'calc.js');
+const FIXTURE_NAME = 'agent-loop-fix-demo';
 const OLD_BUG = 'return a + b; // should multiply';
 const NEW_FIX = 'return a * b;';
 
@@ -92,10 +91,10 @@ function failingFixProvider(trace) {
   };
 }
 
-async function buildRunner(confirmations) {
-  const fileSystem = await NodeWorkspaceFileSystem.create(FIXTURE);
+async function buildRunner(confirmations, root) {
+  const fileSystem = await NodeWorkspaceFileSystem.create(root);
   const edits = new WorkspaceEditService(fileSystem, undefined, fileSystem);
-  const commands = new CommandExecutionService(new NodeProcessRunner(), FIXTURE);
+  const commands = new CommandExecutionService(new NodeProcessRunner(), root);
   const tools = [
     ...createWorkspaceContextTools(new WorkspaceContextService(fileSystem)),
     createWorkspaceEditTool(edits),
@@ -105,7 +104,7 @@ async function buildRunner(confirmations) {
   return new AgentChatRunner(
     new ToolRegistry(tools),
     new PermissionEngine(),
-    WORKSPACE_URI,
+    pathToFileURL(root).href,
     confirmations
   );
 }
@@ -113,42 +112,60 @@ async function buildRunner(confirmations) {
 const request = { model: 'scripted', messages: [{ role: 'user', content: 'fix the failing test in calc.js' }] };
 
 test('v0.3 DoD: a failing test auto-iterates (fail -> fix -> pass) with real tools', async () => {
-  // Fresh bug baseline.
-  fs.writeFileSync(CALC, fs.readFileSync(CALC, 'utf8').replace('return a * b;', OLD_BUG));
-  assert.ok(fs.readFileSync(CALC, 'utf8').includes(OLD_BUG), 'fixture must start buggy');
+  // A private copy: this test fixes a bug with the real edit tools, and mutating
+  // the checked-in fixture would make the repository working tree the shared
+  // mutable state between concurrent runs (see test/support/fixtureCopy.js).
+  const workspace = copyFixture(FIXTURE_NAME);
+  const root = workspace.root;
+  const calc = path.join(root, 'calc.js');
+  try {
+    // Fresh bug baseline.
+    fs.writeFileSync(calc, fs.readFileSync(calc, 'utf8').replace('return a * b;', OLD_BUG));
+    assert.ok(fs.readFileSync(calc, 'utf8').includes(OLD_BUG), 'fixture must start buggy');
 
-  const trace = [];
-  const approvals = [];
-  const confirmations = { confirm: async info => { approvals.push(info); return true; } };
-  const runner = await buildRunner(confirmations);
-  const deltas = [];
-  const signal = new AbortController().signal;
+    const trace = [];
+    const approvals = [];
+    const confirmations = { confirm: async info => { approvals.push(info); return true; } };
+    const runner = await buildRunner(confirmations, root);
+    const deltas = [];
+    const signal = new AbortController().signal;
 
-  const result = await runner.run(
-    failingFixProvider(trace),
-    request,
-    { sessionId: 's-fix', mode: 'auto' },
-    delta => deltas.push(delta),
-    signal
-  );
+    const result = await runner.run(
+      failingFixProvider(trace),
+      request,
+      { sessionId: 's-fix', mode: 'auto' },
+      delta => deltas.push(delta),
+      signal
+    );
 
-  // Real iteration happened: test was run, failed, fixed, run again, passed.
-  assert.equal(trace.includes('run_command#1'), true, 'first validation ran');
-  assert.equal(trace.includes('replace_text'), true, 'fix applied after the failure');
-  assert.equal(trace.includes('run_command#2'), true, 'second validation ran');
-  assert.ok(result.includes('passes'), `final text: ${result}`);
-  assert.equal(deltas.join(''), result);
+    // Real iteration happened: test was run, failed, fixed, run again, passed.
+    assert.equal(trace.includes('run_command#1'), true, 'first validation ran');
+    assert.equal(trace.includes('replace_text'), true, 'fix applied after the failure');
+    assert.equal(trace.includes('run_command#2'), true, 'second validation ran');
+    assert.ok(result.includes('passes'), `final text: ${result}`);
+    assert.equal(deltas.join(''), result);
 
-  // The fix is on disk and the real test passes now.
-  assert.ok(fs.readFileSync(CALC, 'utf8').includes('return a * b;'));
-  const verify = await new NodeProcessRunner().run(
-    { executable: 'node', args: ['calc.test.mjs'], cwd: FIXTURE },
-    new AbortController().signal
-  );
-  assert.equal(verify.status, 'exited');
-  assert.equal(verify.exitCode, 0, `node calc.test.mjs should pass: ${verify.stdout.text + verify.stderr.text}`);
+    // The fix is on disk and the real test passes now.
+    assert.ok(fs.readFileSync(calc, 'utf8').includes('return a * b;'));
+    const verify = await new NodeProcessRunner().run(
+      { executable: 'node', args: ['calc.test.mjs'], cwd: root },
+      new AbortController().signal
+    );
+    assert.equal(verify.status, 'exited');
+    assert.equal(verify.exitCode, 0, `node calc.test.mjs should pass: ${verify.stdout.text + verify.stderr.text}`);
 
-  // Auto mode confirmed the process-exec (validation) runs.
-  const toolIds = approvals.map(item => item.toolId);
-  assert.ok(toolIds.includes('run_command'), 'process-exec was permission-confirmed in auto mode');
+    // Auto mode confirmed the process-exec (validation) runs.
+    const toolIds = approvals.map(item => item.toolId);
+    assert.ok(toolIds.includes('run_command'), 'process-exec was permission-confirmed in auto mode');
+
+    // The checked-in fixture was left exactly as committed: nothing a run does can
+    // change the baseline the next run starts from.
+    assert.match(
+      fs.readFileSync(path.join(workspace.source, 'calc.js'), 'utf8'),
+      /return a \* b;/,
+      'the repository fixture must not be mutated by a test run'
+    );
+  } finally {
+    workspace.cleanup();
+  }
 });

@@ -17,6 +17,8 @@ import { AgentToolEvent } from '../agent/readOnlyAgentLoop';
 import type { AgentDeltaListener } from '../agent/readOnlyAgentLoop';
 import { compactHistory, CompactableMessage } from '../context/contextCompactor';
 import { estimateTokens, CONTEXT_OVERHEAD_TOKENS } from '../context/contextUsage';
+import { parseSkillInvocation, withSkillContext } from '../skills/skillService';
+import { CheckpointTurnStarter } from '../edit/checkpointStore';
 
 export interface AgentConversationRunner {
   run(
@@ -48,6 +50,27 @@ export interface ChatServiceOptions {
    * opt in explicitly (this keeps every existing call site unchanged).
    */
   autoTitle?: () => SessionAutoTitlePolicy;
+  /**
+   * Context window for a model whose provider does not declare one, from the same
+   * known-family estimate the context gauge uses. Without this, compaction only
+   * happened for providers that declare `maxContextTokens` — so the ring could
+   * show "80% used" while nothing ever compacted, and a long session would fail
+   * on overflow exactly where v0.7's DoD promised it would not.
+   *
+   * The declaration always wins; an unknown model still returns undefined, which
+   * means "do not compact" (the previous behaviour).
+   */
+  contextWindow?: (providerId: string, modelId: string) => number | undefined;
+}
+
+/**
+ * Loads a workspace skill invoked as `/name` in the composer. Returning undefined
+ * means "not a skill", and the message is sent exactly as the user typed it — so
+ * a leading slash that is not a known skill (a path, or a command nobody defined)
+ * never silently disappears.
+ */
+export interface SkillInvoker {
+  load(name: string, signal: AbortSignal): Promise<{ name: string; body: string } | undefined>;
 }
 
 export class ChatService {
@@ -61,7 +84,14 @@ export class ChatService {
     private readonly rehydrator?: AttachmentRehydrator,
     private readonly sessionRunner?: (session: { sessionId: string; mode: PermissionMode }) => Promise<AgentConversationRunner | undefined>,
     private readonly historyBudgetRatio = 0.6,
-    private readonly options: ChatServiceOptions = {}
+    private readonly options: ChatServiceOptions = {},
+    private readonly skills?: SkillInvoker,
+    /**
+     * Marks the turn boundary for checkpoints: every workspace change the run
+     * makes is attributed to this turn, so a later rewind can reach past the
+     * single-entry undo. Absent means checkpoints simply are not recorded.
+     */
+    private readonly checkpoints?: CheckpointTurnStarter
   ) {}
 
   async send(
@@ -82,11 +112,19 @@ export class ChatService {
       const priorItemCount = this.sessions.getActiveSession().items.length;
       await this.sessions.appendUserMessage(text, normalizedContexts.map(context => context.reference));
       const active = this.sessions.getActiveSession();
+      // The checkpoint boundary is the request the run is about to answer: every
+      // workspace change from here on belongs to this turn.
+      this.checkpoints?.startTurn(active.id, text, Math.max(0, active.items.length - 1));
+      // `/name` loads a workspace skill for this turn only. It is resolved before
+      // the identity check, because a skill invocation is work, never a question
+      // about who the model is.
+      const invokedSkill = await this.loadInvokedSkill(text, signal);
       // Identity questions go to the bare chat endpoint with no tools and no
       // history — byte-for-byte the raw API call — because agent-tuned models
       // otherwise role-play a different persona inside the tool loop. Normal
       // messages are never routed this way.
       const identityBypass = normalizedContexts.length === 0
+        && !invokedSkill
         && isIdentityQuestion(text, this.identityQuestions?.());
       let messages: AgentConversationMessage[];
       let response: string;
@@ -110,7 +148,15 @@ export class ChatService {
         // Long-session guard (v0.7 DoD): when the provider declares a context
         // window, drop the oldest history turns that exceed it so a long
         // conversation never overflows and fails the request.
-        const windowTokens = capabilities.maxContextTokens;
+        // Long-session guard (v0.7 DoD): when the model's context window is known,
+        // drop the oldest history turns that exceed it so a long conversation never
+        // overflows and fails the request. The provider's own declaration wins; the
+        // fallback comes from the same estimate the context gauge shows, so what the
+        // user sees and what triggers compaction cannot drift apart.
+        const declaredWindow = capabilities.maxContextTokens;
+        const windowTokens = declaredWindow !== undefined && declaredWindow > 0
+          ? declaredWindow
+          : this.estimateContextWindow(selected.providerId, selected.modelId);
         if (windowTokens && windowTokens > 0 && messages.length > 1) {
           const last = messages[messages.length - 1];
           const currentTokens = estimateTokens(typeof last.content === 'string' ? last.content : '');
@@ -132,6 +178,11 @@ export class ChatService {
             }
           }
         }
+        // Injected after compaction, so the skill the user explicitly asked for
+        // cannot be treated as droppable history. It is a message for this turn
+        // only: the stored user message stays exactly what was typed, so a long
+        // skill costs context once instead of on every following turn.
+        if (invokedSkill) messages = withSkillContext(messages, invokedSkill);
         if (capabilities.toolCalling) {
           const runner = await this.resolveAgentRunner(active);
           if (!runner) {
@@ -161,6 +212,8 @@ export class ChatService {
       throw error;
     } finally {
       this.running = false;
+      // Changes made outside a run are not attributed to the turn that just ended.
+      this.checkpoints?.endTurn();
     }
   }
 
@@ -173,6 +226,38 @@ export class ChatService {
    * The request is bare — a system instruction plus the first exchange, no tools
    * and no replayed history — and its stream is discarded rather than shown.
    */
+  private async loadInvokedSkill(
+    text: string,
+    signal: AbortSignal
+  ): Promise<{ name: string; body: string } | undefined> {
+    if (!this.skills) return undefined;
+    const invocation = parseSkillInvocation(text);
+    if (!invocation) return undefined;
+    try {
+      const skill = await this.skills.load(invocation.name, signal);
+      return skill ? { name: skill.name, body: skill.body } : undefined;
+    } catch (error) {
+      signal.throwIfAborted();
+      // A skill that cannot be read must not fail the message the user sent; it
+      // is sent as typed instead.
+      return undefined;
+    }
+  }
+
+  /**
+   * The model's context window when the provider does not declare one. A failure
+   * here must not cost the message the user sent: an unknown window means "do not
+   * compact", which is safe, whereas throwing would lose the turn.
+   */
+  private estimateContextWindow(providerId: string, modelId: string): number | undefined {
+    try {
+      const window = this.options.contextWindow?.(providerId, modelId);
+      return window !== undefined && window > 0 ? window : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   private async applyAutoTitle(
     provider: LLMProvider,
     model: string,

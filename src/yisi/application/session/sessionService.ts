@@ -144,6 +144,32 @@ export class SessionService {
     }));
   }
 
+  /**
+   * Branches the active session at an item index: the new session keeps the
+   * history up to (not including) that index, inherits the model and permission
+   * mode, and becomes active. Used by checkpoints — "fork the conversation from
+   * here" — so the code changes made after the fork point stay in the workspace
+   * exactly as they are (rewinding them is a separate, explicit choice).
+   */
+  forkSession(fromItemIndex: number, title: string): Promise<YisiSession> {
+    return this.enqueue(() => this.mutate(workspace => {
+      const source = this.activeSession(workspace.sessions, workspace.activeSessionId);
+      const index = Math.max(0, Math.min(Math.trunc(fromItemIndex), source.items.length));
+      const forked = this.createBlankSession(this.requiredWorkspaceId());
+      forked.items = structuredClone(source.items.slice(0, index));
+      forked.model = structuredClone(source.model);
+      forked.permissionMode = source.permissionMode;
+      forked.executionWorkspace = structuredClone(source.executionWorkspace);
+      forked.title = requireText(title, 'Session title');
+      // A fork is a deliberate, named branch: it must never be overwritten by the
+      // automatic titler the way a placeholder title would be.
+      forked.titleSource = 'manual';
+      workspace.sessions.push(forked);
+      workspace.activeSessionId = forked.id;
+      return structuredClone(forked);
+    }));
+  }
+
   renameSession(sessionId: string, title: string): Promise<void> {
     return this.enqueue(() => this.mutate(workspace => {
       const normalized = requireText(title, 'Session title');

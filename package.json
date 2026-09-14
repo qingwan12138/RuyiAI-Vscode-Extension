@@ -60,6 +60,10 @@
         "title": "Yisi AI: Show Edit Journal / Undo"
       },
       {
+        "command": "yisiAI.checkpoints",
+        "title": "Yisi AI: Checkpoints — Rewind or Fork"
+      },
+      {
         "command": "yisiAI.ruyi.check",
         "title": "Yisi AI: Ruyi Environment Check"
       },
@@ -186,6 +190,85 @@
           "default": [],
           "scope": "window",
           "description": "Per-model context-window overrides for the UI gauge. Applied to ANY model (any provider), so you can add models the built-in table does not know. Matched by substring on the model id; an entry with a windowTokens of 0 is ignored."
+        },
+        "yisiAI.mcpServers": {
+          "type": "array",
+          "scope": "window",
+          "default": [],
+          "description": "MCP servers to expose as agent tools (namespaced mcp__<server>__<tool>). Each entry spawns one local process with shell:false and inherits your environment, exactly like starting it from a terminal. An MCP tool's effects cannot be inspected from outside, so unclassified tools are treated as environmentChange (Plan refuses them, every other mode asks, Full Access runs them). Narrow individual tools with toolRisks once you have reviewed a server.",
+          "items": {
+            "type": "object",
+            "required": ["name", "command"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Name used for tool namespacing; must be unique."
+              },
+              "command": {
+                "type": "string",
+                "description": "Executable to spawn. Not a shell line: arguments go in \"args\"."
+              },
+              "args": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Arguments passed to the executable."
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Set false to keep the entry but not start the server."
+              },
+              "toolRisks": {
+                "type": "object",
+                "description": "Optional per-tool risk narrowing: readOnly (runs without asking in every mode), workspaceWrite, processExec, or environmentChange. Tools left out keep the conservative default.",
+                "additionalProperties": {
+                  "type": "string",
+                  "enum": ["readOnly", "workspaceWrite", "processExec", "environmentChange", "network"]
+                }
+              }
+            }
+          }
+        },
+        "yisiAI.hooks": {
+          "type": "array",
+          "scope": "window",
+          "default": [],
+          "description": "Hooks: local scripts that run at agent lifecycle events. Each entry spawns one process with shell:false, passing the event as JSON on stdin; a preToolUse hook may print {\"decision\":\"deny\",\"reason\":\"...\"} to block an action, and a postToolUse hook's output is added to the tool result the model reads. A hook can only ever tighten: it cannot approve anything, and the permission mode still decides every call. If a hook cannot run, preToolUse blocks by default (set onError to \"continue\" to let the action through) because a guardrail that silently stops guarding is worse than one that stops the action.",
+          "items": {
+            "type": "object",
+            "required": ["event", "command"],
+            "properties": {
+              "event": {
+                "type": "string",
+                "enum": ["preToolUse", "postToolUse"],
+                "description": "preToolUse runs before a tool call and can refuse it; postToolUse runs after and only adds context."
+              },
+              "command": {
+                "type": "string",
+                "description": "Executable to spawn. Not a shell line: arguments go in \"args\"."
+              },
+              "args": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Arguments passed to the executable."
+              },
+              "match": {
+                "type": "string",
+                "default": "*",
+                "description": "Tool-id pattern: an exact id such as replace_text, or a namespace such as mcp__github__*."
+              },
+              "timeoutMs": {
+                "type": "number",
+                "default": 10000,
+                "description": "Kill the hook after this many milliseconds (1..120000)."
+              },
+              "onError": {
+                "type": "string",
+                "enum": ["block", "continue"],
+                "description": "What to do when the hook cannot run. Defaults to block for preToolUse and continue for postToolUse; the failure is always reported either way."
+              }
+            }
+          }
         }
       }
     }

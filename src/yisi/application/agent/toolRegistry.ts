@@ -21,6 +21,20 @@ export class ToolRegistry {
     return this.tools.get(id);
   }
 
+  /** The registered tools, in registration order. */
+  list(): YisiTool[] {
+    return [...this.tools.values()];
+  }
+
+  /**
+   * A registry holding only the tools matching `predicate`. Used to give a
+   * subagent a strictly smaller tool set than its parent — a subset by
+   * construction rather than by convention.
+   */
+  subset(predicate: (tool: YisiTool) => boolean): ToolRegistry {
+    return new ToolRegistry(this.list().filter(predicate));
+  }
+
   definitions(): AgentToolDefinition[] {
     return this.publicDefinitions.map(definition => parseAgentToolDefinition(definition));
   }

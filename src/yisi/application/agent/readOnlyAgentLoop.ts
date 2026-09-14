@@ -1,5 +1,6 @@
 import { PermissionMode } from '../../domain/session';
-import { ToolExecutionContext } from '../../domain/tool';
+import { ToolExecutionContext, ToolRisk } from '../../domain/tool';
+import { AgentHookPort } from '../../domain/hookPort';
 import {
   AgentConversationMessage,
   AgentRequest,
@@ -12,11 +13,32 @@ import { isWiderPermissionMode } from '../../domain/permissionMode';
 import { permissionModeSystemMessage } from './permissionModePrompt';
 import { agentSystemPromptMessage } from './agentSystemPrompt';
 import { parsePermissionEscalation } from './requestPermissionTool';
+import { buildPlanDocument } from './planReview';
+import { SubagentTask, SUBAGENT_REPORT_CHARACTERS, parseSubagentTask, subagentBrief } from './subagentTool';
 import { ToolRegistry } from './toolRegistry';
 
 export interface AgentLoopRequest extends RequestSampling {
   model: string;
   messages: AgentConversationMessage[];
+  /**
+   * The workspace's project instructions (AGENTS.md family), already bounded and
+   * framed by application/agent/projectInstructions. Absent for workspaces that
+   * have none. They are workspace content, so they only inform the model — the
+   * permission engine still decides every call.
+   */
+  projectInstructions?: string;
+  /**
+   * The bounded list of workspace skills (application/skills). Descriptions are
+   * what every run pays for; a body is only read when the model calls the `skill`
+   * tool. Also workspace content, with the same limits.
+   */
+  skillCatalogue?: string;
+  /**
+   * Present only for a subagent run: who the child is working for, and the three
+   * rules it gets wrong otherwise (it cannot ask the user, it can only observe,
+   * only its report travels back). See application/agent/subagentTool.
+   */
+  subagentBrief?: string;
 }
 
 export interface AgentToolExecutionEvidence {
@@ -64,6 +86,10 @@ export interface ReadOnlyAgentLoopOptions {
   maxConsecutiveDenials: number;
   /** Refusals in one run before the run stops and hands control back. */
   maxTotalDenials: number;
+  /** Subagents one run may spawn. Bounded so a fan-out cannot run away. */
+  maxSubagents: number;
+  /** Round budget for a single subagent. */
+  subagentMaxRounds: number;
 }
 
 interface AgentToolProvider {
@@ -73,12 +99,30 @@ interface AgentToolProvider {
 export interface ToolConfirmationRequest {
   callId: string;
   toolId: string;
+  /** Risk class the engine evaluated, so an approver never has to guess. */
+  risk: ToolRisk;
   input: Record<string, unknown>;
   reason: string;
+  /**
+   * Markdown for the user to review and comment on, when the tool is Plan mode's
+   * reviewed exit. It is rendered as a document; the card remains the decision.
+   */
+  planDocument?: string;
+}
+
+/**
+ * What the user decided, plus anything they left in the review document. Ports
+ * may still return a plain boolean — nothing that only approves or declines has to
+ * know about feedback.
+ */
+export interface ToolConfirmationDecision {
+  approved: boolean;
+  /** Inline comments from the plan document, when there were any. */
+  feedback?: string;
 }
 
 export interface ToolConfirmationPort {
-  confirm(request: ToolConfirmationRequest, signal: AbortSignal): Promise<boolean>;
+  confirm(request: ToolConfirmationRequest, signal: AbortSignal): Promise<boolean | ToolConfirmationDecision>;
 }
 
 /**
@@ -96,17 +140,35 @@ const DEFAULT_OPTIONS: ReadOnlyAgentLoopOptions = {
   // Codex breaks the turn after 3 consecutive or 10-in-50. Yisi has no separate
   // "pause and resume prompting" step, so the stop itself hands back to the user.
   maxConsecutiveDenials: 3,
-  maxTotalDenials: 20
+  maxTotalDenials: 20,
+  // A subagent exists to keep big intermediate output out of the parent context,
+  // so the budget is deliberately small: a handful of focused explorations, each
+  // with fewer rounds than the parent run.
+  maxSubagents: 4,
+  subagentMaxRounds: 6
 };
 
-/** Why a call did not run. The model gets a different reason for each. */
-type DenialKind = 'policy' | 'user' | 'unavailable';
+/**
+ * Why a call did not run. The model gets a different reason for each.
+ *
+ * `hook` is separate from `policy` on purpose: a configured hook is an orthogonal
+ * gate, so widening the permission mode cannot lift it. Keeping them apart is what
+ * stops the model from asking for an escalation that could never help.
+ */
+type DenialKind = 'policy' | 'user' | 'unavailable' | 'hook';
 
 const DENIAL_GUIDANCE: Record<DenialKind, string> = {
   policy: 'The permission policy refused this action. Do not look for a way around it. Continue with a materially safer alternative, or explain what you need and let the user switch the permission mode.',
+  hook: 'A hook configured in this workspace refused this action. It is not a permission-mode decision, so changing the mode will not lift it. Do not look for a way around it: report what the hook said and let the user adjust the hook or choose a different approach.',
   user: 'The user declined this action. Do not repeat it; ask what they would prefer, or continue without it.',
   unavailable: 'No approval channel was available, so the action failed closed. Do not retry it; tell the user what you need and let them decide.'
 };
+
+/** Bound on the extra text a post-tool hook may add to a tool result. */
+const HOOK_CONTEXT_CHARACTERS = 4_000;
+
+/** Bound on inline plan comments carried back to the model. */
+const PLAN_FEEDBACK_CHARACTERS = 2_000;
 
 export class AgentToolLoop {
   private readonly options: ReadOnlyAgentLoopOptions;
@@ -116,7 +178,13 @@ export class AgentToolLoop {
     private readonly registry: ToolRegistry,
     private readonly permissions: Pick<PermissionEngine, 'evaluate'>,
     options: Partial<ReadOnlyAgentLoopOptions> = {},
-    private readonly confirmations?: ToolConfirmationPort
+    private readonly confirmations?: ToolConfirmationPort,
+    /**
+     * User-configured hooks. They can only ever tighten: a `deny` refuses the
+     * call, while `allow` still leaves the permission engine and the approval
+     * card untouched (domain/hookPort).
+     */
+    private readonly hooks?: AgentHookPort
   ) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
     for (const value of Object.values(this.options)) {
@@ -132,18 +200,26 @@ export class AgentToolLoop {
     signal: AbortSignal,
     onToolEvent?: (event: AgentToolEvent) => void
   ): Promise<AgentLoopResult> {
-    // The head message is the agent's role and tool-use policy: stable, so a
-    // provider's prompt cache can reuse it. The mode-specific briefing is appended
-    // after the retained history instead (below), so a mode change only rewrites
-    // the tail. Note the Anthropic transport hoists system messages into its
-    // top-level `system` field, so there both still form the cached prefix.
+    // The head messages are the agent's role/tool-use policy and the workspace
+    // context (project instructions, then the skill catalogue): all stable, so a
+    // provider's prompt cache can reuse them. The mode-specific briefing is
+    // appended after the retained history instead (below), so a mode change only
+    // rewrites the tail. Note the Anthropic transport hoists system messages into
+    // its top-level `system` field, so there both still form the cached prefix.
     const messages = structuredClone(request.messages);
     const lastIsUser = messages.length > 0 && messages[messages.length - 1].role === 'user';
     messages.splice(lastIsUser ? messages.length - 1 : messages.length, 0, {
       role: 'system',
       content: permissionModeSystemMessage(mode)
     });
-    messages.unshift({ role: 'system', content: agentSystemPromptMessage() });
+    const head: AgentConversationMessage[] = [{ role: 'system', content: agentSystemPromptMessage() }];
+    const subagentBriefText = request.subagentBrief?.trim();
+    if (subagentBriefText) head.push({ role: 'system', content: subagentBriefText });
+    const projectInstructions = request.projectInstructions?.trim();
+    if (projectInstructions) head.push({ role: 'system', content: projectInstructions });
+    const skillCatalogue = request.skillCatalogue?.trim();
+    if (skillCatalogue) head.push({ role: 'system', content: skillCatalogue });
+    messages.unshift(...head);
     const executions: AgentToolExecutionEvidence[] = [];
     let previousSignature: string | undefined;
     // Denials are tool outcomes, not run failures (docs/04: every reference agent
@@ -159,6 +235,9 @@ export class AgentToolLoop {
     let policyDenials = 0;
     // One escalation request per run, matching the reference designs.
     let escalationRequested = false;
+    // Subagents are bounded per run: the guard stops the run rather than silently
+    // refusing, so the model cannot keep asking for more workers.
+    let subagentsSpawned = 0;
 
     for (let round = 0; round < this.options.maxRounds; round += 1) {
       signal.throwIfAborted();
@@ -224,7 +303,15 @@ export class AgentToolLoop {
         // environmentChange (Ruyi SDK env mutations) is admitted the same way:
         // plan denies, manual/auto/acceptEdits confirm, fullAccess allows.
         const isEnvironmentChange = tool.risk === 'environmentChange' && tool.mutatesWorkspace;
-        if (!isRead && !isWorkspaceWrite && !isProcessExec && !isEnvironmentChange) {
+        // `network` is its own axis, not a sibling of workspace-write (docs/14): a
+        // search or a fetch does not change the workspace, so it is admitted
+        // regardless of that flag and the engine decides — plan denies it, the other
+        // modes confirm it, Full Access allows it. Without this, a networking tool
+        // would be refused as "outside the bounded scope", which would make the
+        // network declaration in a settings file look like a broken tool instead of
+        // a permission decision the user can make.
+        const isNetwork = tool.risk === 'network';
+        if (!isRead && !isWorkspaceWrite && !isProcessExec && !isEnvironmentChange && !isNetwork) {
           return blocked('Tool is outside the bounded Agent tool scope.', executions);
         }
         // A refusal is a tool outcome, not a run failure: the model gets a
@@ -312,23 +399,40 @@ export class AgentToolLoop {
             continue;
           }
           escalationRequested = true;
-          let widened: boolean;
+          let decision: ToolConfirmationDecision;
           try {
-            widened = await this.confirmations.confirm({
+            const answer = await this.confirmations.confirm({
               callId: call.id,
               toolId: tool.id,
+              risk: tool.risk,
               input: { mode: requested.mode, justification: requested.justification },
-              reason: `Allow this run to continue in "${requested.mode}" mode? ${requested.justification}`
+              reason: `Allow this run to continue in "${requested.mode}" mode? ${requested.justification}`,
+              // Plan mode's reviewed exit: the plan is opened as a document the
+              // user can read and comment on while deciding.
+              ...(requested.plan
+                ? { planDocument: buildPlanDocument({ plan: requested.plan, mode: requested.mode, justification: requested.justification }) }
+                : {})
             }, signal);
             signal.throwIfAborted();
+            decision = typeof answer === 'boolean' ? { approved: answer } : answer;
           } catch (error) {
             if (signal.aborted || (error instanceof Error && error.name === 'AbortError')) throw error;
             const terminal = refuse('unavailable', 'The permission change could not be asked for.');
             if (terminal) return terminal;
             continue;
           }
-          if (!widened) {
-            const terminal = refuse('user', 'The user declined the permission change. Do not ask again in this run.');
+          // Comments the user left in the plan document are guidance for the model
+          // and nothing more: they never widen or narrow what the engine allows.
+          const planFeedback = decision.feedback?.trim()
+            ? bounded(decision.feedback, PLAN_FEEDBACK_CHARACTERS)
+            : undefined;
+          if (!decision.approved) {
+            const terminal = refuse(
+              'user',
+              planFeedback
+                ? `The user declined the permission change. Do not ask again in this run. Comments they left in the plan:\n${planFeedback}`
+                : 'The user declined the permission change. Do not ask again in this run.'
+            );
             if (terminal) return terminal;
             continue;
           }
@@ -351,10 +455,42 @@ export class AgentToolLoop {
             content: JSON.stringify({
               ok: true,
               mode,
-              note: `The user allowed this run to continue in "${mode}" mode. It applies until this run ends; the session setting is unchanged.`
+              note: `The user allowed this run to continue in "${mode}" mode. It applies until this run ends; the session setting is unchanged.`,
+              // The plan they reviewed, plus whatever they changed in it.
+              ...(planFeedback
+                ? { planFeedback: `The user commented on the plan. Follow it:\n${planFeedback}` }
+                : {})
             })
           });
           continue;
+        }
+
+        // Configured hooks run first, because their whole point is to stop an
+        // action before it happens (the documented guardrail use). A hook can only
+        // refuse or annotate — it cannot approve anything, so the engine below
+        // still runs for every call.
+        let preHookContext: string | undefined;
+        if (this.hooks) {
+          const hookResult = await this.hooks.preToolUse(
+            {
+              toolId: tool.id,
+              risk: tool.risk,
+              mutatesWorkspace: tool.mutatesWorkspace,
+              input: structuredClone(call.input),
+              sessionId: context.sessionId
+            },
+            signal
+          );
+          // Stop must win over a hook verdict: a cancelled run reports cancelled.
+          signal.throwIfAborted();
+          if (hookResult.decision === 'deny') {
+            // Deliberately not counted as a policy denial: widening the mode could
+            // never lift a hook, so it must not unlock an escalation request.
+            const terminal = refuse('hook', hookResult.reason ?? 'A configured hook denied this action.');
+            if (terminal) return terminal;
+            continue;
+          }
+          if (hookResult.context) preHookContext = hookResult.context;
         }
 
         const decision = this.permissions.evaluate(mode, {
@@ -374,13 +510,15 @@ export class AgentToolLoop {
           }
           let approved: boolean;
           try {
-            approved = await this.confirmations.confirm({
+            const answer = await this.confirmations.confirm({
               callId: call.id,
               toolId: tool.id,
+              risk: tool.risk,
               input: structuredClone(call.input),
               reason: bounded(decision.reason, this.options.maxErrorCharacters)
             }, signal);
             signal.throwIfAborted();
+            approved = typeof answer === 'boolean' ? answer : answer.approved;
           } catch (error) {
             if (signal.aborted || (error instanceof Error && error.name === 'AbortError')) throw error;
             const terminal = refuse('unavailable', 'Tool approval could not be completed.');
@@ -394,12 +532,26 @@ export class AgentToolLoop {
           }
         }
 
+        // A subagent is gated exactly like any other tool (hooks, engine, approval)
+        // — only its *body* is different, so it keeps the same abort handling,
+        // result bounding, step events and post-hooks as everything else.
+        if (tool.spawnsSubagent && subagentsSpawned >= this.options.maxSubagents) {
+          return blocked(
+            `Subagent budget exhausted: this run may spawn ${this.options.maxSubagents}. `
+            + 'Finish with what the subagents have already reported.',
+            executions
+          );
+        }
+
         let content: string;
         let truncated = false;
         let outcome: AgentToolExecutionEvidence['outcome'] = 'succeeded';
         onToolEvent?.({ type: 'toolCall', id: call.id, name: call.name, input: structuredClone(call.input) });
         try {
-          const result = await tool.execute(call.input, { ...context, signal });
+          const result = tool.spawnsSubagent
+            ? await this.runSubagent(parseSubagentTask(call.input), request, context, mode, signal, onToolEvent)
+            : await tool.execute(call.input, { ...context, signal });
+          if (tool.spawnsSubagent) subagentsSpawned += 1;
           if (signal.aborted) {
             if (tool.mutatesWorkspace) {
               executions.push({
@@ -423,6 +575,29 @@ export class AgentToolLoop {
             error: bounded(error instanceof Error ? error.message : String(error), this.options.maxErrorCharacters)
           });
         }
+        // Post-tool hooks run whether the tool succeeded or failed: "the edit went
+        // through, but the linter now complains" is exactly the feedback worth
+        // handing back. Their text is attached to the result the model reads.
+        const hookContext: string[] = [];
+        if (preHookContext) hookContext.push(preHookContext);
+        if (this.hooks) {
+          const postResult = await this.hooks.postToolUse(
+            {
+              toolId: tool.id,
+              risk: tool.risk,
+              mutatesWorkspace: tool.mutatesWorkspace,
+              input: structuredClone(call.input),
+              sessionId: context.sessionId,
+              outcome,
+              result: bounded(content, DETAIL_CHARACTERS)
+            },
+            signal
+          );
+          signal.throwIfAborted();
+          if (postResult.context) hookContext.push(postResult.context);
+        }
+        if (hookContext.length) content = withHookContext(content, hookContext.join('\n\n'));
+
         executions.push({ callId: call.id, toolId: call.name, outcome, truncated });
         // A call that actually ran clears the run of refusals, so the consecutive
         // budget only counts a genuine streak.
@@ -444,6 +619,78 @@ export class AgentToolLoop {
     }
     return blocked('Agent round budget exhausted.', executions);
   }
+  /**
+   * Runs one subagent and returns only its report.
+   *
+   * The child gets a **filtered registry** — read-only observers only, with the
+   * escalation tool and this tool itself removed. That filter is what makes "a
+   * subagent can never exceed its parent's permissions" structural: there is no
+   * privileged tool for it to call. It receives the workspace context (project
+   * instructions, skill catalogue) and the task, but **not** the parent's
+   * conversation: isolation is the point.
+   *
+   * Its tool activity is forwarded so the user can see work happening, but its
+   * prose is not: the report is the only thing that crosses back.
+   */
+  private async runSubagent(
+    task: SubagentTask,
+    request: AgentLoopRequest,
+    context: ToolExecutionContext,
+    mode: PermissionMode,
+    signal: AbortSignal,
+    onToolEvent?: (event: AgentToolEvent) => void
+  ): Promise<{ ok: boolean; subagent: string; toolCalls: number; report: string; stopped?: string }> {
+    const registry = this.registry.subset(
+      tool =>
+        tool.risk === 'readOnly'
+        && !tool.mutatesWorkspace
+        && !tool.permissionEscalation
+        && !tool.spawnsSubagent
+    );
+    const child = new AgentToolLoop(
+      this.provider,
+      registry,
+      this.permissions,
+      { ...this.options, maxRounds: this.options.subagentMaxRounds },
+      this.confirmations,
+      this.hooks
+    );
+    const result = await child.run(
+      {
+        model: request.model,
+        messages: [{ role: 'user', content: task.prompt }],
+        ...(request.projectInstructions ? { projectInstructions: request.projectInstructions } : {}),
+        ...(request.skillCatalogue ? { skillCatalogue: request.skillCatalogue } : {}),
+        subagentBrief: subagentBrief(task)
+      },
+      { ...context, signal },
+      mode,
+      () => undefined,
+      signal,
+      onToolEvent ? event => onToolEvent(prefixSubagentEvent(task, event)) : undefined
+    );
+    return {
+      ok: result.status === 'completed',
+      subagent: task.description,
+      toolCalls: result.executions.length,
+      report: bounded(result.finalText, SUBAGENT_REPORT_CHARACTERS),
+      ...(result.status === 'blocked'
+        ? { stopped: bounded(result.reason ?? 'The subagent stopped without a reason.', 400) }
+        : {})
+    };
+  }
+}
+
+/**
+ * Namespaces a child's step events so they read as the subagent's work and cannot
+ * collide with the parent's call ids in the transcript.
+ */
+function prefixSubagentEvent(task: SubagentTask, event: AgentToolEvent): AgentToolEvent {
+  return {
+    ...event,
+    id: `subagent:${task.description}:${event.id}`,
+    name: `${task.description} → ${event.name}`
+  };
 }
 
 // Compatibility export while callers migrate from the initial read-only slice.
@@ -457,6 +704,24 @@ function blocked(reason: string, executions: AgentToolExecutionEvidence[]): Agen
 
 function bounded(value: string, maxCharacters: number): string {
   return value.length <= maxCharacters ? value : `${value.slice(0, Math.max(0, maxCharacters - 1))}…`;
+}
+
+/**
+ * Attaches hook text to a serialized tool result. The result is JSON the model
+ * reads, so the extra text goes in as a field rather than appended raw text that
+ * would leave the payload unparseable.
+ */
+function withHookContext(content: string, context: string): string {
+  const boundedContext = bounded(context, HOOK_CONTEXT_CHARACTERS);
+  try {
+    const parsed: unknown = JSON.parse(content);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return JSON.stringify({ ...(parsed as Record<string, unknown>), hookContext: boundedContext });
+    }
+  } catch {
+    // Fall through to the wrapper form below.
+  }
+  return JSON.stringify({ ok: true, result: content, hookContext: boundedContext });
 }
 
 function boundedSuccess(result: unknown, maxCharacters: number): { content: string; truncated: boolean } {

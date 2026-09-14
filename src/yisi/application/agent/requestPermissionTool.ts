@@ -1,5 +1,6 @@
 import { PermissionMode } from '../../domain/session';
 import { YisiTool } from '../../domain/tool';
+import { normalizePlan } from './planReview';
 
 export const REQUEST_PERMISSION_TOOL_ID = 'request_permission';
 
@@ -31,7 +32,8 @@ export function createRequestPermissionTool(): YisiTool {
       'Ask the user to allow this run to continue in a wider permission mode, after an action was refused.',
       'Use it when the refusal blocks work the user clearly asked for, for example when a plan is ready to apply.',
       'It works at most once per run, only after a refusal, and only for a mode strictly wider than the current one.',
-      'Give a one-line justification: what you need to do and why it is safe.'
+      'Give a one-line justification: what you need to do and why it is safe.',
+      'In Plan mode, put the finished plan in "plan": it is opened as a document the user can read and comment on, and anything they change there comes back to you as feedback.'
     ].join(' '),
     risk: 'readOnly',
     mutatesWorkspace: false,
@@ -48,6 +50,12 @@ export function createRequestPermissionTool(): YisiTool {
         justification: {
           type: 'string',
           description: 'One line for the user: what needs to run and why it is safe.'
+        },
+        plan: {
+          type: 'string',
+          description:
+            'Optional markdown plan of what you would apply. In Plan mode, submit the finished plan here: '
+            + 'it is opened as a document the user can read and comment on before approving.'
         }
       },
       required: ['mode', 'justification'],
@@ -65,6 +73,8 @@ export function createRequestPermissionTool(): YisiTool {
 export interface PermissionEscalationRequest {
   mode: PermissionMode;
   justification: string;
+  /** Markdown plan, when the model submitted one for review. */
+  plan?: string;
 }
 
 /** Parses the tool input, returning undefined for anything malformed. */
@@ -77,10 +87,12 @@ export function parsePermissionEscalation(input: unknown): PermissionEscalationR
   if (typeof rawJustification !== 'string') return undefined;
   const justification = rawJustification.replace(/\s+/g, ' ').trim();
   if (!justification) return undefined;
+  const plan = normalizePlan(record.plan);
   return {
     mode: mode as PermissionMode,
     justification: justification.length <= MAX_JUSTIFICATION_CHARACTERS
       ? justification
-      : `${justification.slice(0, MAX_JUSTIFICATION_CHARACTERS - 1)}…`
+      : `${justification.slice(0, MAX_JUSTIFICATION_CHARACTERS - 1)}…`,
+    ...(plan ? { plan } : {})
   };
 }

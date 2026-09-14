@@ -189,8 +189,9 @@ test('admits permission-gated process-exec tools but still fails closed out of s
   assert.equal(admittedResult.finalText, 'tests ok');
   assert.equal(executed, true);
 
-  // Out-of-scope risks (destructive / network) never reach execute.
-  for (const risk of ['destructive', 'network']) {
+  // Risks the loop refuses outright (destructive) never reach execute: an unknown
+  // risk is a protocol-level violation, not a permission decision.
+  for (const risk of ['destructive', 'credentialSensitive']) {
     let touched = false;
     const unsafe = tool('run_command', async () => { touched = true; });
     unsafe.risk = risk;
@@ -205,6 +206,21 @@ test('admits permission-gated process-exec tools but still fails closed out of s
     assert.match(result.reason, /Agent tool scope/i);
     assert.equal(touched, false);
   }
+
+  // `network` is admitted as its own axis (docs/14) and gated by the engine: a
+  // search tool must not have to be mislabelled readOnly to be callable.
+  let networkTouched = false;
+  const searchTool = tool('mcp__web__search', async () => { networkTouched = true; return { hits: 1 }; });
+  searchTool.risk = 'network';
+  searchTool.mutatesWorkspace = false;
+  const networkLoop = new ReadOnlyAgentLoop(
+    provider([[call('c1', 'mcp__web__search', { query: 'riscv' })], [text('found it')]]),
+    new ToolRegistry([searchTool]),
+    new PermissionEngine()
+  );
+  const networkResult = await networkLoop.run(request, context(signal), 'fullAccess', () => {}, signal);
+  assert.equal(networkResult.status, 'completed', 'network is a permission question, not an out-of-scope tool');
+  assert.equal(networkTouched, true);
 
   // environmentChange is admitted like processExec (permission-gated below).
   let envTouched = false;

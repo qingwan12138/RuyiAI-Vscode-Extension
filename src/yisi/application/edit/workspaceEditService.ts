@@ -27,6 +27,7 @@ import {
   renderTextDiff,
   summarizeTextChange
 } from './editJournal';
+import { CheckpointChange, CheckpointRecorder } from './checkpointStore';
 
 const MAX_PATH_CHARACTERS = 4_096;
 const MAX_REPLACEMENT_CHARACTERS = 65_536;
@@ -83,7 +84,13 @@ export class WorkspaceEditService {
     private readonly diagnostics?: DiagnosticProvider,
     private readonly reads?: FileSystemPort,
     private readonly git?: GitPort,
-    private readonly workspaceRoot?: string
+    private readonly workspaceRoot?: string,
+    /**
+     * Receives an invertible record of every successful mutation so a checkpoint
+     * rewind can reach further back than the single-entry `undo_last_edit`. It is
+     * a recorder, not a gate: it can never change what an edit does.
+     */
+    private readonly checkpoints?: CheckpointRecorder
   ) {}
 
   /**
@@ -176,6 +183,16 @@ export class WorkspaceEditService {
       capturedToPath: edit.fromPath
     });
     this.trimJournal();
+    // Checkpoint convention: `path` is the source (before) and `toPath` the
+    // destination (after), so the inverse is a rename from `toPath` back to `path`.
+    this.checkpoints?.record({
+      kind: 'rename_file',
+      path: edit.fromPath,
+      toPath: edit.toPath,
+      beforeText: null,
+      afterText: null,
+      reversible: true
+    });
     return this.withDiagnostics(edit, signal);
   }
 
@@ -190,7 +207,91 @@ export class WorkspaceEditService {
       reason: 'Directory removal is not automated; delete files first if you created them here.'
     });
     this.trimJournal();
+    this.checkpoints?.record({
+      kind: 'create_directory',
+      path: edit.path,
+      beforeText: null,
+      afterText: null,
+      reversible: false,
+      reason: 'Directory removal is not automated; delete files first if you created them here.'
+    });
     return this.withDiagnostics(edit, signal);
+  }
+
+  /**
+   * Inverts one recorded change, as part of a user-initiated checkpoint rewind.
+   *
+   * This is deliberately **not** an agent tool: a rewind is the user reverting the
+   * agent, so it is not subject to the agent-only restrictions (such as "rewrite
+   * only files this run created"). It keeps the parts that protect the user: the
+   * stale guard (a file edited since the agent touched it is refused, never
+   * clobbered), the workspace boundary and the sensitive-path rules — all of which
+   * live in the write port below this call.
+   */
+  async restoreFromCheckpoint(
+    change: CheckpointChange,
+    signal: AbortSignal
+  ): Promise<{ path: string; restored: boolean; reason?: string }> {
+    if (!change.reversible) {
+      return {
+        path: change.path,
+        restored: false,
+        reason: change.reason ?? 'This change was not retained, so it cannot be rewound automatically.'
+      };
+    }
+    try {
+      signal.throwIfAborted();
+      switch (change.kind) {
+        case 'create_text_file': {
+          // The file did not exist before this change, so removing it is the
+          // target state; a file that is already gone is a success, not a failure.
+          try {
+            await this.files.deleteFile({ path: change.path }, signal);
+          } catch (error) {
+            if (signal.aborted) throw error;
+            return { path: change.path, restored: true };
+          }
+          this.agentCreatedFiles.delete(change.path);
+          break;
+        }
+        case 'delete_file': {
+          if (change.beforeText === null) {
+            return { path: change.path, restored: false, reason: 'The deleted content was not retained.' };
+          }
+          const created = await this.files.createTextFile({ path: change.path, content: change.beforeText }, signal);
+          this.agentCreatedFiles.add(created.path);
+          break;
+        }
+        case 'replace_text':
+        case 'rewrite_text_file': {
+          if (change.beforeText === null) {
+            return { path: change.path, restored: false, reason: 'The previous content was not retained.' };
+          }
+          if (!change.afterSha256) {
+            return { path: change.path, restored: false, reason: 'The expected file version was not recorded.' };
+          }
+          await this.files.rewriteTextFile(
+            { path: change.path, expectedSha256: change.afterSha256, content: change.beforeText },
+            signal
+          );
+          break;
+        }
+        case 'rename_file': {
+          if (!change.toPath) {
+            return { path: change.path, restored: false, reason: 'The rename destination was not recorded.' };
+          }
+          await this.files.renameFile({ fromPath: change.toPath, toPath: change.path }, signal);
+          break;
+        }
+        default:
+          return { path: change.path, restored: false, reason: `Rewinding ${change.kind} is not automated.` };
+      }
+    } catch (error) {
+      if (signal.aborted || (error instanceof Error && error.name === 'AbortError')) throw error;
+      const message = error instanceof Error ? error.message : 'Unknown rewind failure.';
+      return { path: change.path, restored: false, reason: message };
+    }
+    return { path: change.path, restored: true };
   }
 
   /** Revert the most recent journaled workspace write (LIFO, stale-guarded). */
@@ -356,6 +457,16 @@ export class WorkspaceEditService {
     }
     this.journal.push(entry);
     this.trimJournal();
+    this.checkpoints?.record({
+      kind: entry.kind,
+      path: entry.path,
+      beforeText: entry.capturedBeforeText ?? null,
+      afterText: entry.capturedAfterText ?? null,
+      ...(entry.beforeSha256 !== undefined ? { beforeSha256: entry.beforeSha256 } : {}),
+      ...(entry.afterSha256 !== undefined ? { afterSha256: entry.afterSha256 } : {}),
+      reversible: entry.reversibility === 'reversible',
+      ...(entry.reason !== undefined ? { reason: entry.reason } : {})
+    });
   }
 
   private async readAfterText(relativePath: string, signal?: AbortSignal): Promise<string | undefined> {
