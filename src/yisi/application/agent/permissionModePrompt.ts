@@ -29,6 +29,7 @@ export function permissionModeSystemMessage(mode: PermissionMode): string {
     'How to work with the engine:',
     '- Attempt what the task needs, normally. A refusal comes back to you as the tool result, so trying is cheap and tells you the real boundary — do not pre-emptively refuse work because of this policy.',
     '- If an action is refused, do not look for a way around it. Continue with a materially safer alternative, or say what you need and let the user decide.',
+    '- If the refusal blocks work the user clearly asked for, you may call request_permission once to ask them to widen the mode for this run: name the wider mode and give a one-line justification. It only works after a refusal and only for a strictly wider mode, and the user can decline.',
     '- Never claim an action succeeded unless its tool result reported ok.'
   ].join('\n');
 }
@@ -42,7 +43,7 @@ const MODE_LABELS: Record<PermissionMode, string> = {
 };
 
 const MODE_RULES: Record<PermissionMode, string> = {
-  plan: 'State-changing actions — file writes, commands, Ruyi environment changes — are BLOCKED by the engine in this mode, so nothing you attempt can modify the workspace. Prefer to analyse and propose: say exactly what you would change and why. The user switches to Manual or Accept Edits when they want it applied.',
+  plan: 'State-changing actions — file writes, commands, Ruyi environment changes — are BLOCKED by the engine in this mode, so nothing you attempt can modify the workspace. Prefer to analyse and propose: say exactly what you would change and why. When the plan is ready, present it and call request_permission with the mode you need (for example acceptEdits) so the user can approve applying it; they can also switch modes themselves.',
   manual: 'Every state-changing or privileged action needs the user\'s approval before it runs: an approval card appears and you wait for the answer. A refusal means the user declined it — do not repeat that request; ask what they would prefer instead.',
   acceptEdits: 'Workspace file edits run without asking. Commands, Ruyi environment changes and every other privileged action still need the user\'s approval.',
   auto: 'Bounded workspace file edits run without asking. Commands, Ruyi environment changes and every other privileged action still need the user\'s approval.',

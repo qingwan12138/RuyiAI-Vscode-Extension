@@ -29,6 +29,7 @@ import { ToolRegistry } from './application/agent/toolRegistry';
 import { PermissionEngine } from './permissions/permissionEngine';
 import { AgentChatRunner } from './application/agent/agentChatRunner';
 import { AgentPlanService, createPlanTodoTool } from './application/agent/agentPlanService';
+import { createRequestPermissionTool } from './application/agent/requestPermissionTool';
 import {
   WorkspaceEditService,
   createWorkspaceEditTool,
@@ -320,7 +321,10 @@ async function buildAgentRunner(
     createRuyiManageTool(new RuyiManageService(new RuyiCliAdapter())),
     createRuyiWorkflowTool(new RuyiWorkflowService(new RuyiCliAdapter())),
     createPlanTodoTool(plan),
-    createListSymbolsTool(symbols)
+    createListSymbolsTool(symbols),
+    // The reviewed exit from Plan mode: the loop intercepts this and asks the
+    // user through the same approval card a privileged action would use.
+    createRequestPermissionTool()
   ];
   return new AgentChatRunner(
     new ToolRegistry(tools),

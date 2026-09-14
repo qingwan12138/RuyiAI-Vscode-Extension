@@ -28,6 +28,19 @@ Permission mode 不是 sandbox。Sandbox/ExecutionWorkspace 决定技术上能�
 
 **继续是有界的**：连续 3 次或单轮累计 20 次拒绝后停止并把控制权交回用户（`maxConsecutiveDenials` / `maxTotalDenials`）。阈值取自公开记录：Claude Code 为连续 3 / 累计 20，Codex 为连续 3 / 最近 50 内 10。**运行终止只保留给协议级违规**：未知工具、超出有界工具范围、重复调用无进展、轮次或预算耗尽。区分很重要——**策略拒绝是"约束生效"，不是"运行失败"**；把两者混为一谈会让用户以为插件崩了。
 
+## 一次性权限升级（Plan 模式的被审阅退出）
+
+被拒绝之后，模型可以调用 **`request_permission`** 请求把**本次运行**的模式放宽。四个条件全部满足才会问到用户，任一不满足即作为 `policy` 拒绝回给模型：
+
+1. **有据可依**：本次运行已经发生过至少一次拒绝（不允许空口升级）；
+2. **严格更宽**：目标模式在 `domain/permissionMode.ts` 的顺序中必须严格靠后（`plan < manual < acceptEdits < auto < fullAccess`）；`acceptEdits` 与 `auto` 相邻是因为引擎目前对二者的判定完全相同；
+3. **每次运行仅一次**（对齐 DSH 的"仅一次"与 Codex 的单次请求）；
+4. **有人来批**：走**已有的审批卡片**（与特权动作同一通道）；无审批通道时 `unavailable` 失败关闭。
+
+批准的语义：**只对本次运行生效，会话存储的模式不变**——一次"这次就照办"不会被静默写成长期设置。批准后连续拒绝计数清零，后续每次 tool call 仍按新模式的策略逐次判定。
+
+这条通道**同时是 Plan 模式的"被审阅的退出"**：模型给出方案 → 调 `request_permission` 请求 `acceptEdits` 之类的模式并附一行理由 → 用户在看得到工具名与理由的卡片上批准 → 本运行内可以直接应用（对齐 CC 的 `ExitPlanMode` 批准选项与 DSH 的 `exit_plan_mode` 被审阅退出）。**尚未实现**的是 CC/DSH 那种专门的"计划审阅面板"（把计划渲染成文档、内联评论、按选项切换不同模式）——当前复用通用审批卡片，属已知差距。
+
 ## Risk classes
 建议：read-only, workspace-write, process-exec, network, environment-change, destructive, credential-sensitive。Ruyi install/venv create 属 environment-change；uninstall/repo remove 更高风险。
 

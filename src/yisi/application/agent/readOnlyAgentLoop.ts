@@ -8,7 +8,9 @@ import {
   RequestSampling
 } from '../../llm/types';
 import { PermissionEngine } from '../../permissions/permissionEngine';
+import { isWiderPermissionMode } from '../../domain/permissionMode';
 import { permissionModeSystemMessage } from './permissionModePrompt';
+import { parsePermissionEscalation } from './requestPermissionTool';
 import { ToolRegistry } from './toolRegistry';
 
 export interface AgentLoopRequest extends RequestSampling {
@@ -126,6 +128,8 @@ export class AgentToolLoop {
     // looping until the round budget runs out.
     let consecutiveDenials = 0;
     let totalDenials = 0;
+    // One escalation request per run, matching the reference designs.
+    let escalationRequested = false;
 
     for (let round = 0; round < this.options.maxRounds; round += 1) {
       signal.throwIfAborted();
@@ -230,6 +234,90 @@ export class AgentToolLoop {
           }
           return undefined;
         };
+
+        // A permission escalation is a question, not work. It is grounded in a
+        // refusal that actually happened, must be strictly wider, is asked at most
+        // once per run, and only takes effect once the user approves it — the
+        // shape Codex and the DeepSeek Harness both document (docs/04). This is
+        // also what gives Plan mode a reviewed exit.
+        if (tool.permissionEscalation) {
+          const requested = parsePermissionEscalation(call.input);
+          if (!requested) {
+            const terminal = refuse('policy', 'Malformed permission escalation request.');
+            if (terminal) return terminal;
+            continue;
+          }
+          if (escalationRequested) {
+            const terminal = refuse('policy', 'A permission change was already requested in this run.');
+            if (terminal) return terminal;
+            continue;
+          }
+          if (totalDenials === 0) {
+            const terminal = refuse(
+              'policy',
+              'A permission change must follow a refusal, and nothing has been refused in this run yet.'
+            );
+            if (terminal) return terminal;
+            continue;
+          }
+          if (!isWiderPermissionMode(mode, requested.mode)) {
+            const terminal = refuse(
+              'policy',
+              `The requested mode ("${requested.mode}") is not strictly wider than the current one ("${mode}").`
+            );
+            if (terminal) return terminal;
+            continue;
+          }
+          if (!this.confirmations) {
+            const terminal = refuse('unavailable', 'No approval channel is available for a permission change.');
+            if (terminal) return terminal;
+            continue;
+          }
+          escalationRequested = true;
+          let widened: boolean;
+          try {
+            widened = await this.confirmations.confirm({
+              callId: call.id,
+              toolId: tool.id,
+              input: { mode: requested.mode, justification: requested.justification },
+              reason: `Allow this run to continue in "${requested.mode}" mode? ${requested.justification}`
+            }, signal);
+            signal.throwIfAborted();
+          } catch (error) {
+            if (signal.aborted || (error instanceof Error && error.name === 'AbortError')) throw error;
+            const terminal = refuse('unavailable', 'The permission change could not be asked for.');
+            if (terminal) return terminal;
+            continue;
+          }
+          if (!widened) {
+            const terminal = refuse('user', 'The user declined the permission change. Do not ask again in this run.');
+            if (terminal) return terminal;
+            continue;
+          }
+          // The widening lasts for the rest of this run only; the session's stored
+          // mode is not changed.
+          mode = requested.mode;
+          consecutiveDenials = 0;
+          onToolEvent?.({
+            type: 'toolResult',
+            id: call.id,
+            name: call.name,
+            outcome: 'succeeded',
+            truncated: false,
+            summary: `permission widened to ${mode} for this run`
+          });
+          toolMessages.push({
+            role: 'tool',
+            toolCallId: call.id,
+            name: call.name,
+            content: JSON.stringify({
+              ok: true,
+              mode,
+              note: `The user allowed this run to continue in "${mode}" mode. It applies until this run ends; the session setting is unchanged.`
+            })
+          });
+          continue;
+        }
 
         const decision = this.permissions.evaluate(mode, {
           risk: tool.risk,

@@ -68,11 +68,21 @@ test('Plan mode invites a proposal without forbidding the attempt', () => {
   const briefing = permissionModeSystemMessage('plan');
   assert.match(briefing, /BLOCKED/);
   assert.match(briefing, /Prefer to analyse and propose/);
-  assert.match(briefing, /Manual or Accept Edits/, 'the user needs to be told how to unblock it');
+  // The reviewed exit: the model is told it can ask to apply a finished plan.
+  assert.match(briefing, /request_permission/);
+  assert.match(briefing, /acceptEdits/, 'the plan must say which mode to ask for');
   // The soft-lockout guard: state the fact, but keep the model trying and reading
   // the refusal rather than going passive.
   assert.equal(/Do not attempt/.test(briefing), false, 'a prohibitive framing caused a documented soft lockout');
   assert.match(briefing, /do not pre-emptively refuse/i);
+});
+
+test('every mode explains the escalation rules', () => {
+  for (const mode of MODES) {
+    const briefing = permissionModeSystemMessage(mode);
+    assert.match(briefing, /request_permission/, `${mode}: the model must know the channel exists`);
+    assert.match(briefing, /strictly wider/, `${mode}: the constraint has to be stated`);
+  }
 });
 
 function readTool() {

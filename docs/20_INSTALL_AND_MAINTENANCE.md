@@ -31,7 +31,7 @@ npx vsce package --no-yarn --allow-missing-repository
 
 `Yisi AI: New Chat`, `Model Settings`, `Stop Current Run`, `Continue`, `Explain/Add Comments/Unit Tests` (selection), `Generate README / API Docs`, `Show Edit Journal / Undo`, `Open Chat` (status bar / editor title), `Resume`.
 
-Agent tools: `read_file`, `list_directory`, `search_text`, `repo_index`, `replace_text`, `create_text_file`, `rewrite_text_file`, `delete_file`, `rename_file`, `create_directory`, `undo_last_edit`, `run_command`, `git_status`, `git_worktree`, `inspect_project`, `run_validations`, `list_symbols`, `ruyi_check`, `ruyi_manage`, `ruyi_workflow`, `plan_todo`, `session_history`, `model_capabilities`.
+Agent tools: `read_file`, `list_directory`, `search_text`, `repo_index`, `replace_text`, `create_text_file`, `rewrite_text_file`, `delete_file`, `rename_file`, `create_directory`, `undo_last_edit`, `run_command`, `git_status`, `git_worktree`, `inspect_project`, `run_validations`, `list_symbols`, `ruyi_check`, `ruyi_manage`, `ruyi_workflow`, `plan_todo`, `session_history`, `model_capabilities`, `request_permission`（请求把本次运行的模式放宽一次；Plan 模式下用它来申请应用已给出的方案，需用户批准，且只对本次运行生效）。
 
 ## 5. Configuration
 
