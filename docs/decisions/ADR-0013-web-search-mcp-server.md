@@ -47,7 +47,8 @@ Accepted（2026-09-14）
 - **不需要新增任何 npm 依赖**，`THIRD_PARTY_NOTICES.md` 不变。
 - headless 的允许清单**仍然不含 `network`**，未改动：无人值守自动放行数据外发不该是默认。
 - **未做**：MCP 客户端不发 `notifications/cancelled`（服务器已支持，接上是客户端侧的一小步）、连接固定（anti-rebinding）需要自定义 dispatcher、按 host 粒度的网络授权、`web_fetch` 的缓存。
-- **未在本机验证**：在真实 VS Code 里粘贴配置、装上 SearXNG、跑一次真实的联网搜索（本机无 GUI 宿主）。已用**离线 mock 端到端**覆盖到真实 `AgentToolLoop` 与真实 MCP 客户端。
+- **本机实测（2026-09-14）**：把 `dist/yisi/mcp-server/websearch/server.js` 当**真实子进程**起来、走真实 stdio JSON-RPC，`initialize` / `tools/list` 正常，`web_fetch` 走到**真实 DNS 与真实策略**：`169.254.169.254`（云元数据）被拒、`example.com` **也**被拒——因为它在本机被解析成 `198.18.0.135`（代理软件 fake-ip 网段）。**判定是正确的**（接受该网段等于接受 DNS rebinding 落点），但它暴露了一个**真实的产品级限制**：用 fake-ip 代理的用户会发现 `web_fetch` 拒绝一切公网域名。已记入 `docs/20` 供用户自查。**不为此放宽策略。**
+- **仍未验证**：在真实 VS Code 里粘贴配置、装上 SearXNG、跑一次**成功的**真实抓取与真实搜索（本机无 GUI 宿主，且本机网络环境会拒绝公网解析 —— 见上）。管线已用**离线 mock 端到端**覆盖到真实 `AgentToolLoop` 与真实 MCP 客户端。
 
 ## 守卫
 `test/websearch-mcp.test.js`（14：两个工具的边界与诚实失败、SSRF 策略、同源重定向、取消、**经真实 MCP 客户端与真实 loop 的端到端**、Plan 模式被引擎拒绝、配置渲染与命令接线）、`test/websearch-url-policy.test.js`（12）、`test/permission-mode-prompt.test.js`（联网纪律与"网页内容是数据不是指令"两段提示词的存在性）。

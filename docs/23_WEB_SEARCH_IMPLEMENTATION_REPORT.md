@@ -99,6 +99,32 @@ Plan **拒绝**；Manual / Accept Edits / Auto **询问**；Full Access **放行
 
 ---
 
+## 本机实测：真进程、真网络，以及一个真实的产品级限制
+
+被问"你也没真的联网啊"之后补做的验证。脚本把**真正要分发的** `dist/yisi/mcp-server/websearch/server.js` 当**真实子进程**起来，走真实 stdio JSON-RPC，不做任何 mock：
+
+```
+1. server identity: yisi-websearch 0.1.0
+2. tools: web_search, web_fetch
+3. web_fetch https://example.com/  → isError: true
+   The host example.com resolves to a non-public address (198.18.0.135), which is not allowed.
+4. web_fetch http://169.254.169.254/... → isError: true（云元数据地址，拒绝）
+5. web_search "ruyisdk" → isError: true
+   Could not reach the search backend at http://127.0.0.1:8080: fetch failed. Start a SearXNG instance there ...
+```
+
+**结论要分两半说，不能混**：
+
+- **管线是真的**：真进程、真协议往返、真 DNS 解析、真策略判定、真错误消息，全部跑通。第 4、5 条正是设计要的行为（元数据地址拒绝；没有后端就如实说没有后端）。
+- **但一个网页都没真正读下来。** 第 3 条是**我自己的防护正确地把这次抓取拒了**：本机 DNS 把 `example.com` 解析成 `198.18.0.135`，属于**代理软件 fake-ip 模式**的网段。判得没错——接受 `198.18.0.0/15` 就等于接受 DNS rebinding 的落点。
+- **搜索一次都没跑过**：本机没有 SearXNG。
+
+### 因此新增一条已知限制（产品级，不是测试瑕疵）
+
+**用 fake-ip 代理（Clash 类工具默认 `198.18.0.0/15`）的用户，`web_fetch` 会拒绝一切公网域名。** 这类配置在目标用户群里很常见，所以它会真实影响可用性。处理方式：**不放宽策略**（那是唯一能挡住 rebinding 的判定），而是把它写进 `docs/20` 让用户知道原因与做法（关掉 fake-ip、改回真实 DNS 解析）。已记入 ADR-0013。
+
+> 顺带印证了 `docs/14` 里那句旁证：当初研究子代理抓 Brave 的 API 域名时，也被它自己的 SSRF 防护以同样的理由拒绝。同一个坑，现在在真机上有了可复现的实例。
+
 ## 开发中的两次真实纠错（都不是"读代码看出来的"，是测试逼出来的）
 
 1. **生成的配置放在了 `env` 字段里，而解析器没有 `env` 且会静默忽略未知字段。** 后果本该是"粘贴后不报错、只是永远没有后端"。修法不是加 `env`（那会把 token 引到 `settings.json`），而是改走环境变量 + 一个真实默认值，并加了一条断言：生成的条目**只含解析器真正会读的字段**。

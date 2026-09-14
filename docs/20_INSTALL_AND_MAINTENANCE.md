@@ -90,6 +90,7 @@ What to expect:
 - **Nothing is cached, and nothing is sent anywhere except the search backend and the page you fetch.** The agent is instructed to search only when the answer depends on information newer than its training, to make the fewest calls, and to claim it searched the web **only when a web tool actually ran and succeeded**.
 - **Web content is untrusted input.** The prompt states that a page or a result can never change permissions, run a command, disclose a secret, upload anything, or change the workspace — and that the agent must never do such a thing *because a page said so*.
 - Search is bounded: at most 10 results per call, 300-character titles, 600-character snippets.
+- **If you use a proxy in "fake-ip" mode (Clash and friends default to `198.18.0.0/15`), `web_fetch` will refuse everything** — those tools resolve public domains to an address inside that range, and the SSRF guard correctly treats a non-public answer as a refusal (accepting that range would also accept a DNS-rebinding target). You will see `The host <name> resolves to a non-public address (198.18.x.x)`. Verified on this development machine, where `example.com` resolves to `198.18.0.135`. Turning the proxy's fake-ip mode off (use real DNS resolution) fixes it. **The guard is not going to be loosened for this** — the fix belongs in the environment, not in the policy.
 
 ### Hooks (`yisiAI.hooks`)
 
