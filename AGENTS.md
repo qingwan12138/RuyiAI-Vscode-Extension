@@ -120,7 +120,7 @@
 
 ## Process-visibility rule
 
-- **思考（thinking）是 UI 轨迹，不是对话内容**：`reasoningDelta` 只用于显示——**绝不进入 `messages`、绝不持久化**（不属于 session items，状态刷新即消失）、**不回传宿主**。它出现在**它所产出回答的上方**，流式展开、run 结束自动折叠。
+- **思考（thinking）是 UI 轨迹，不是对话内容**：`reasoningDelta` 只用于显示——**绝不进入 `messages`、绝不持久化**（不属于 session items，状态刷新即消失）、**不回传宿主**。它出现在**它所产出回答的上方**，**默认折叠且保持折叠**；标签是**单行动态预览** `思考 · <思考首行>`（随 delta 实时更新、一行截断），点开才看全文。**不要**做成"流式自动展开"——用户明确要求它像一行状态那样克制。
 - **provider 不得把 `reasoning_content` 计入 `emitted`**：否则"只思考、没有 content 也没有工具调用"的一轮会被当成有效输出（这正是自动命名那次 bug 的同源防线）。
 - **工具步骤必须可折叠**（`<details>`，渐进式披露，docs/19）：`summary` 是单行标签（`🔧 名称 · ✓/✕`），展开体放入参与结果；事件同时带 `summary`(600) 与 `detail`(8000)，让"展开看细节"是可选操作而非默认铺满。
 - 守卫：`test/agent-trace.test.js`。详见 `docs/06`。

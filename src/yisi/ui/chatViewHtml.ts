@@ -505,13 +505,21 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     .tool-result.ok { color: var(--vscode-gitDecoration-addedResourceForeground); }
     .tool-result.fail { color: var(--vscode-gitDecoration-deletedResourceForeground); }
 
-    /* The model's thinking trace: UI-only, collapsible, collapsed once the run
-       finishes so it never crowds the answer. */
+    /* The model's thinking trace: UI-only, one collapsed row with a live
+       one-line preview. The full text is one click away and never takes the
+       reader's place in the flow. */
     .message.reasoning {
       margin: 0 0 10px 22px;
       border: 1px dashed var(--yisi-border);
       background: transparent;
       font-size: 11px;
+    }
+    /* One line only: the preview is clipped, never wrapped. */
+    .message.reasoning > summary,
+    .message.tool > summary {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .reasoning-header {
       font-weight: 600;
@@ -1814,12 +1822,28 @@ ${permissionClientScript()}
       content.scrollTop = content.scrollHeight;
     }
 
-    // The thinking trace lives above the answer it produced, streaming open while
-    // it arrives and collapsing when the run ends.
+    // The thinking trace is one collapsed row whose label previews the thinking
+    // as it arrives, the way the harness shows it: the reader always knows what
+    // the model is chewing on, and the full text stays one click away.
+    function reasoningPreview() {
+      const firstLine = streamedReasoning.split(/\r?\n/).find(line => line.trim().length > 0) ?? '';
+      const collapsed = firstLine.replace(/\s+/g, ' ').trim();
+      return collapsed.length <= 200 ? collapsed : collapsed.slice(0, 199) + '…';
+    }
+    function updateReasoningNode() {
+      if (!reasoningNode) return;
+      if (reasoningNode.__body) reasoningNode.__body.textContent = streamedReasoning;
+      const preview = reasoningPreview();
+      if (reasoningNode.__header) {
+        reasoningNode.__header.textContent = preview ? '思考 · ' + preview : '思考';
+      }
+    }
     function appendReasoningNode() {
       const node = document.createElement('details');
       node.className = 'message reasoning';
-      node.open = true;
+      // Collapsed by default, and it stays that way: the row is the live signal,
+      // expanding is the reader's choice.
+      node.open = false;
       const header = document.createElement('summary');
       header.className = 'reasoning-header';
       header.textContent = '思考';
@@ -1837,11 +1861,8 @@ ${permissionClientScript()}
     }
     function finalizeReasoning() {
       if (!reasoningNode) return;
-      const chars = streamedReasoning.trim().length;
-      if (reasoningNode.__header) {
-        reasoningNode.__header.textContent = chars > 0 ? '思考 · ' + chars + ' 字' : '思考';
-      }
-      reasoningNode.open = false;
+      // The label already previews the trace, so nothing has to be rewritten here;
+      // only the run-scoped bookkeeping is dropped.
       reasoningNode = undefined;
       streamedReasoning = '';
     }
@@ -1981,7 +2002,7 @@ ${permissionClientScript()}
       if (message.type === 'assistantReasoningDelta') {
         if (!reasoningNode) reasoningNode = appendReasoningNode();
         streamedReasoning += typeof message.text === 'string' ? message.text : '';
-        if (reasoningNode.__body) reasoningNode.__body.textContent = streamedReasoning;
+        updateReasoningNode();
         const content = document.getElementById('content');
         content.scrollTop = content.scrollHeight;
       }

@@ -158,3 +158,21 @@ test('the webview renders thinking and tool steps as collapsible rows', () => {
   assert.equal(source.includes('streamedReasoning'), true);
   assert.equal(/postMessage\(\{[^}]*reason/i.test(source), false, 'reasoning must not be sent back to the host');
 });
+
+test('the thinking row stays collapsed and previews the thinking live', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'yisi', 'ui', 'chatViewHtml.ts'), 'utf8');
+  // Reported: it must read like a single dynamic line, not an expanded block.
+  assert.equal(/node\.open = true/.test(source), false, 'no step may auto-expand');
+  assert.match(source, /node\.open = false/);
+  assert.match(source, /function reasoningPreview\(\)/);
+  assert.match(source, /function updateReasoningNode\(\)/);
+  // The label is "思考 · <preview>" and is rebuilt on every delta.
+  assert.match(source, /'思考 · ' \+ preview/);
+  assert.match(source, /updateReasoningNode\(\);/);
+  // The preview is the first non-empty line, whitespace-collapsed.
+  assert.match(source, /split\(\/\\r\?\\n\/\)\.find\(line => line\.trim\(\)\.length > 0\)/);
+  // One visual line: clipped with an ellipsis rather than wrapped.
+  assert.match(source, /\.message\.reasoning > summary/);
+  assert.match(source, /text-overflow: ellipsis/);
+  assert.match(source, /white-space: nowrap/);
+});
