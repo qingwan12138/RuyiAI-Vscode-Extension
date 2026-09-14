@@ -79,37 +79,54 @@ function readTool() {
   };
 }
 
-test('the agent loop leads every round with exactly one briefing', async () => {
-  const requests = [];
-  const provider = {
-    async *streamAgent(request) {
-      requests.push(structuredClone(request));
-      if (requests.length === 1) {
-        yield { type: 'toolCall', call: { id: 'c1', name: 'read_file', input: {} } };
-      } else {
-        yield { type: 'textDelta', text: 'done' };
-      }
-    }
-  };
-  const loop = new AgentToolLoop(provider, new ToolRegistry([readTool()]), new PermissionEngine());
+test('every permission mode reaches the model as its own briefing', async () => {
+  // Not just Plan: the loop must forward whichever mode the session is in, so a
+  // hardcoded mode would show up here as five identical briefings.
+  const delivered = new Map();
   const signal = new AbortController().signal;
 
-  const result = await loop.run(
-    { model: 'm', messages: [{ role: 'user', content: 'hi' }] },
-    { sessionId: 's', workspaceUri: 'file:///w', signal },
-    'plan',
-    () => undefined,
-    signal
-  );
+  for (const mode of MODES) {
+    const requests = [];
+    const provider = {
+      async *streamAgent(request) {
+        requests.push(structuredClone(request));
+        if (requests.length === 1) {
+          yield { type: 'toolCall', call: { id: 'c1', name: 'read_file', input: {} } };
+        } else {
+          yield { type: 'textDelta', text: 'done' };
+        }
+      }
+    };
+    const loop = new AgentToolLoop(provider, new ToolRegistry([readTool()]), new PermissionEngine());
 
-  assert.equal(result.status, 'completed');
-  assert.equal(requests.length, 2, 'a read tool runs in Plan mode, so the loop continues');
-  for (const request of requests) {
-    const systems = request.messages.filter(message => message.role === 'system');
-    assert.equal(systems.length, 1, 'exactly one briefing, not one per round');
-    assert.equal(request.messages[0].role, 'system', 'the briefing leads the conversation');
-    assert.match(systems[0].content, /Current permission mode: Plan/);
+    const result = await loop.run(
+      { model: 'm', messages: [{ role: 'user', content: 'hi' }] },
+      { sessionId: 's', workspaceUri: 'file:///w', signal },
+      mode,
+      () => undefined,
+      signal
+    );
+
+    assert.equal(result.status, 'completed', `${mode}: a read tool runs in every mode`);
+    assert.equal(requests.length, 2, `${mode}: the loop continued after the read`);
+    for (const request of requests) {
+      const systems = request.messages.filter(message => message.role === 'system');
+      assert.equal(systems.length, 1, `${mode}: exactly one briefing, not one per round`);
+      assert.equal(request.messages[0].role, 'system', `${mode}: the briefing leads the conversation`);
+      assert.equal(
+        systems[0].content,
+        permissionModeSystemMessage(mode),
+        `${mode}: the model must receive that mode's briefing`
+      );
+    }
+    // The caller's own messages are preserved verbatim after the briefing.
+    assert.deepEqual(requests[0].messages[1], { role: 'user', content: 'hi' });
+    delivered.set(mode, requests[0].messages[0].content);
   }
-  // The caller's own messages are preserved verbatim after the briefing.
-  assert.deepEqual(requests[0].messages[1], { role: 'user', content: 'hi' });
+
+  assert.equal(
+    new Set(delivered.values()).size,
+    MODES.length,
+    'a loop that ignored the mode would deliver the same briefing to every mode'
+  );
 });
