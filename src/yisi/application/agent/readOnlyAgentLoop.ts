@@ -40,6 +40,10 @@ export interface ReadOnlyAgentLoopOptions {
   maxCallsPerRound: number;
   maxResultCharacters: number;
   maxErrorCharacters: number;
+  /** Refusals in a row before the run stops and hands control back. */
+  maxConsecutiveDenials: number;
+  /** Refusals in one run before the run stops and hands control back. */
+  maxTotalDenials: number;
 }
 
 interface AgentToolProvider {
@@ -61,7 +65,21 @@ const DEFAULT_OPTIONS: ReadOnlyAgentLoopOptions = {
   maxRounds: 8,
   maxCallsPerRound: 16,
   maxResultCharacters: 65_536,
-  maxErrorCharacters: 240
+  maxErrorCharacters: 240,
+  // Claude Code escalates to the human after 3 consecutive or 20 total denials;
+  // Codex breaks the turn after 3 consecutive or 10-in-50. Yisi has no separate
+  // "pause and resume prompting" step, so the stop itself hands back to the user.
+  maxConsecutiveDenials: 3,
+  maxTotalDenials: 20
+};
+
+/** Why a call did not run. The model gets a different reason for each. */
+type DenialKind = 'policy' | 'user' | 'unavailable';
+
+const DENIAL_GUIDANCE: Record<DenialKind, string> = {
+  policy: 'The permission policy refused this action. Do not look for a way around it. Continue with a materially safer alternative, or explain what you need and let the user switch the permission mode.',
+  user: 'The user declined this action. Do not repeat it; ask what they would prefer, or continue without it.',
+  unavailable: 'No approval channel was available, so the action failed closed. Do not retry it; tell the user what you need and let them decide.'
 };
 
 export class AgentToolLoop {
@@ -88,16 +106,26 @@ export class AgentToolLoop {
     signal: AbortSignal,
     onToolEvent?: (event: AgentToolEvent) => void
   ): Promise<AgentLoopResult> {
-    const messages: AgentConversationMessage[] = [
-      // Tell the model which permission mode it is in, once per run. Without
-      // this it never knew, so Plan mode produced "attempt the write, get
-      // refused, fail the whole run" instead of a proposal. The engine below
-      // remains the only authority; this text gates nothing.
-      { role: 'system', content: permissionModeSystemMessage(mode) },
-      ...structuredClone(request.messages)
-    ];
+    // The briefing goes after the retained history, immediately before the current
+    // user turn, rather than at the head: the history then stays a byte-identical
+    // prefix and a mode change only rewrites the tail. It stays a `system` message
+    // so the model cannot mistake it for user input — note the Anthropic
+    // transport hoists system messages into its top-level `system` field, so there
+    // a mode change still alters the cached prefix.
+    const messages = structuredClone(request.messages);
+    const lastIsUser = messages.length > 0 && messages[messages.length - 1].role === 'user';
+    messages.splice(lastIsUser ? messages.length - 1 : messages.length, 0, {
+      role: 'system',
+      content: permissionModeSystemMessage(mode)
+    });
     const executions: AgentToolExecutionEvidence[] = [];
     let previousSignature: string | undefined;
+    // Denials are tool outcomes, not run failures (docs/04: every reference agent
+    // returns the refusal to the model and continues). They are still bounded, so
+    // an agent that keeps hitting the boundary hands control back instead of
+    // looping until the round budget runs out.
+    let consecutiveDenials = 0;
+    let totalDenials = 0;
 
     for (let round = 0; round < this.options.maxRounds; round += 1) {
       signal.throwIfAborted();
@@ -161,16 +189,62 @@ export class AgentToolLoop {
         if (!isRead && !isWorkspaceWrite && !isProcessExec && !isEnvironmentChange) {
           return blocked('Tool is outside the bounded Agent tool scope.', executions);
         }
+        // A refusal is a tool outcome, not a run failure: the model gets a
+        // distinguishable reason so it can tell "the policy says no" from "the
+        // user said no" from "nobody could answer", and it keeps working. Bounded
+        // by a budget, past which the run stops and hands control back.
+        const refuse = (kind: DenialKind, rawReason: string): AgentLoopResult | undefined => {
+          consecutiveDenials += 1;
+          totalDenials += 1;
+          const reason = bounded(rawReason, this.options.maxErrorCharacters);
+          executions.push({ callId: call.id, toolId: call.name, outcome: 'failed', truncated: false });
+          onToolEvent?.({
+            type: 'toolResult',
+            id: call.id,
+            name: call.name,
+            outcome: 'failed',
+            truncated: false,
+            summary: bounded(reason, 600)
+          });
+          toolMessages.push({
+            role: 'tool',
+            toolCallId: call.id,
+            name: call.name,
+            content: JSON.stringify({
+              ok: false,
+              denied: true,
+              reason: kind,
+              error: reason,
+              guidance: DENIAL_GUIDANCE[kind]
+            })
+          });
+          if (
+            consecutiveDenials >= this.options.maxConsecutiveDenials
+            || totalDenials >= this.options.maxTotalDenials
+          ) {
+            return blocked(
+              `Stopped after ${totalDenials} refused action(s), ${consecutiveDenials} of them in a row. `
+              + 'Check the permission mode, then tell the agent how to proceed.',
+              executions
+            );
+          }
+          return undefined;
+        };
+
         const decision = this.permissions.evaluate(mode, {
           risk: tool.risk,
           mutatesWorkspace: tool.mutatesWorkspace
         });
         if (!decision.allowed || decision.outcome === 'deny') {
-          return blocked(bounded(decision.reason, this.options.maxErrorCharacters), executions);
+          const terminal = refuse('policy', decision.reason);
+          if (terminal) return terminal;
+          continue;
         }
         if (decision.needsConfirmation || decision.outcome === 'confirm') {
           if (!this.confirmations) {
-            return blocked(bounded(decision.reason, this.options.maxErrorCharacters), executions);
+            const terminal = refuse('unavailable', decision.reason);
+            if (terminal) return terminal;
+            continue;
           }
           let approved: boolean;
           try {
@@ -183,9 +257,15 @@ export class AgentToolLoop {
             signal.throwIfAborted();
           } catch (error) {
             if (signal.aborted || (error instanceof Error && error.name === 'AbortError')) throw error;
-            return blocked('Tool approval could not be completed.', executions);
+            const terminal = refuse('unavailable', 'Tool approval could not be completed.');
+            if (terminal) return terminal;
+            continue;
           }
-          if (!approved) return blocked('User declined the proposed workspace action.', executions);
+          if (!approved) {
+            const terminal = refuse('user', 'The user declined the proposed workspace action.');
+            if (terminal) return terminal;
+            continue;
+          }
         }
 
         let content: string;
@@ -218,6 +298,9 @@ export class AgentToolLoop {
           });
         }
         executions.push({ callId: call.id, toolId: call.name, outcome, truncated });
+        // A call that actually ran clears the run of refusals, so the consecutive
+        // budget only counts a genuine streak.
+        if (outcome === 'succeeded') consecutiveDenials = 0;
         onToolEvent?.({
           type: 'toolResult',
           id: call.id,

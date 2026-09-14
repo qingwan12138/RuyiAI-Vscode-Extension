@@ -21,8 +21,11 @@ test('every permission mode gets its own briefing naming the mode', () => {
   for (const briefing of briefings) {
     assert.ok(briefing.length > 0);
     assert.match(briefing, /Current permission mode:/);
-    // The briefing has to say what to do instead, not only what is forbidden.
-    assert.match(briefing, /do not retry it/i);
+    // The briefing must not tell the model to pre-emptively refuse — DSH recorded
+    // a "soft lockout" (zero-tool-call turns) from that framing — it has to send
+    // the model to the refusal instead.
+    assert.match(briefing, /do not pre-emptively refuse/i);
+    assert.match(briefing, /do not look for a way around it/i);
   }
   assert.match(permissionModeSystemMessage('plan'), /Current permission mode: Plan/);
   assert.match(permissionModeSystemMessage('acceptEdits'), /Current permission mode: Accept Edits/);
@@ -61,10 +64,15 @@ test('the briefing agrees with the engine about command execution', () => {
   assertBriefingMatchesEngine('processExec');
 });
 
-test('Plan mode tells the model to propose instead of attempting the write', () => {
+test('Plan mode invites a proposal without forbidding the attempt', () => {
   const briefing = permissionModeSystemMessage('plan');
-  assert.match(briefing, /Do not attempt them/);
+  assert.match(briefing, /BLOCKED/);
+  assert.match(briefing, /Prefer to analyse and propose/);
   assert.match(briefing, /Manual or Accept Edits/, 'the user needs to be told how to unblock it');
+  // The soft-lockout guard: state the fact, but keep the model trying and reading
+  // the refusal rather than going passive.
+  assert.equal(/Do not attempt/.test(briefing), false, 'a prohibitive framing caused a documented soft lockout');
+  assert.match(briefing, /do not pre-emptively refuse/i);
 });
 
 function readTool() {

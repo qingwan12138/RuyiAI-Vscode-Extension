@@ -91,26 +91,37 @@ test('executes multiple calls sequentially and permission-checks every call', as
   assert.equal(decisions.length, 2);
 });
 
-test('blocks unknown tools and permission confirmation without executing', async () => {
+test('blocks unknown tools, and answers a missing approval channel with a denial', async () => {
   const registry = new ToolRegistry([tool()]);
   const unknown = new ReadOnlyAgentLoop(
     provider([[call('c1', 'delete_file', { path: 'a' })]]), registry, new PermissionEngine()
   );
   const signal = new AbortController().signal;
   const unknownResult = await unknown.run(request, context(signal), 'manual', () => {}, signal);
+  // An unknown tool is a protocol violation, not a user decision, so it still
+  // stops the run.
   assert.equal(unknownResult.status, 'blocked');
   assert.match(unknownResult.reason, /Unknown tool/);
 
+  // A confirmation the host cannot ask for is a different matter: the action fails
+  // closed, and the model is told which kind of refusal it was instead of losing
+  // the whole run.
   let executed = false;
+  const requests = [];
   const confirming = new ReadOnlyAgentLoop(
-    provider([[call('c1', 'read_file', { path: 'a' })]]),
+    provider([[call('c1', 'read_file', { path: 'a' })], [text('understood')]], requests),
     new ToolRegistry([tool('read_file', async () => { executed = true; })]),
     { evaluate: () => ({ outcome: 'confirm', allowed: true, needsConfirmation: true, reason: 'approval required' }) }
   );
   const confirmResult = await confirming.run(request, context(signal), 'manual', () => {}, signal);
-  assert.equal(confirmResult.status, 'blocked');
-  assert.match(confirmResult.reason, /approval required/);
-  assert.equal(executed, false);
+  assert.equal(confirmResult.status, 'completed');
+  assert.equal(confirmResult.finalText, 'understood');
+  assert.equal(executed, false, 'a confirmation that cannot be asked never executes');
+  const denial = JSON.parse(requests[1].request.messages.at(-1).content);
+  assert.equal(denial.denied, true);
+  assert.equal(denial.reason, 'unavailable', 'distinguishable from a policy or user refusal');
+  assert.match(denial.error, /approval required/);
+  assert.match(denial.guidance, /Do not retry/);
 });
 
 test('executes a confirmed workspace edit and fails closed when approval is rejected', async () => {
@@ -136,17 +147,28 @@ test('executes a confirmed workspace edit and fails closed when approval is reje
   assert.equal(approvals[0][0].toolId, 'replace_text');
   assert.equal(approvals[0][1], signal);
 
+  // A user "no" is an outcome the model can act on, not the end of the run.
+  const declinedRuns = [];
+  const rejectedRequests = [];
+  const declinedTool = tool('replace_text', async () => { declinedRuns.push(1); return { replacements: 1 }; });
+  declinedTool.risk = 'workspaceWrite';
+  declinedTool.mutatesWorkspace = true;
   const rejected = new AgentToolLoop(
-    provider([[editCall]]),
-    new ToolRegistry([edit]),
+    provider([[editCall], [text('understood — I will not touch that file')]], rejectedRequests),
+    new ToolRegistry([declinedTool]),
     new PermissionEngine(),
     {},
     { confirm: async () => false }
   );
   const rejectedResult = await rejected.run(request, context(signal), 'manual', () => {}, signal);
-  assert.equal(rejectedResult.status, 'blocked');
-  assert.match(rejectedResult.reason, /declined/i);
-  assert.equal(executions.length, 1);
+  assert.equal(rejectedResult.status, 'completed');
+  assert.equal(rejectedResult.finalText, 'understood — I will not touch that file');
+  assert.equal(declinedRuns.length, 0, 'the declined edit never ran');
+  assert.deepEqual(rejectedResult.executions.map(item => item.outcome), ['failed']);
+  const denial = JSON.parse(rejectedRequests[1].request.messages.at(-1).content);
+  assert.equal(denial.denied, true);
+  assert.equal(denial.reason, 'user');
+  assert.match(denial.guidance, /Do not repeat it/);
 });
 
 test('admits permission-gated process-exec tools but still fails closed out of scope', async () => {
@@ -205,8 +227,9 @@ test('keeps process-exec commands behind explicit confirmation in manual mode', 
   runTool.risk = 'processExec';
   runTool.mutatesWorkspace = true;
   const approvals = [];
+  const requests = [];
   const declined = new ReadOnlyAgentLoop(
-    provider([[call('c1', 'run_command', { executable: 'ctest' })]]),
+    provider([[call('c1', 'run_command', { executable: 'ctest' })], [text('noted')]], requests),
     new ToolRegistry([runTool]),
     new PermissionEngine(),
     {},
@@ -214,11 +237,14 @@ test('keeps process-exec commands behind explicit confirmation in manual mode', 
   );
   const signal = new AbortController().signal;
   const result = await declined.run(request, context(signal), 'manual', () => {}, signal);
-  assert.equal(result.status, 'blocked');
-  assert.match(result.reason, /declined/i);
+  // Declining one command must not abort the conversation: the model is told the
+  // user said no and keeps working.
+  assert.equal(result.status, 'completed');
+  assert.equal(result.finalText, 'noted');
   assert.equal(executed, false);
   assert.equal(approvals.length, 1);
   assert.equal(approvals[0].toolId, 'run_command');
+  assert.equal(JSON.parse(requests[1].request.messages.at(-1).content).reason, 'user');
 });
 
 test('returns bounded tool failures to the provider so it can recover', async () => {
@@ -396,4 +422,72 @@ test('tool registry rejects duplicate ids and returns cloned definitions', () =>
   const definitions = registry.definitions();
   definitions[0].parameters.changed = true;
   assert.equal(registry.definitions()[0].parameters.changed, undefined);
+});
+
+test('a streak of refusals stops the run and hands control back', async () => {
+  const write = tool('replace_text', async () => ({ replacements: 1 }));
+  write.risk = 'workspaceWrite';
+  write.mutatesWorkspace = true;
+  // Fresh arguments every round, so the repeated-call guard does not fire first
+  // and the denial budget is what ends the run.
+  let round = 0;
+  const provider = {
+    async *streamAgent() {
+      round += 1;
+      yield { type: 'toolCall', call: { id: `c${round}`, name: 'replace_text', input: { path: `src/a${round}.ts` } } };
+    }
+  };
+  const loop = new AgentToolLoop(
+    provider,
+    new ToolRegistry([write]),
+    new PermissionEngine(),
+    { maxConsecutiveDenials: 3 }
+  );
+  const signal = new AbortController().signal;
+
+  const result = await loop.run(request, context(signal), 'plan', () => {}, signal);
+
+  // Continuing is bounded (docs/04: CC escalates after 3 consecutive or 20 total,
+  // Codex breaks the turn after 3 consecutive or 10-in-50).
+  assert.equal(result.status, 'blocked');
+  assert.match(result.reason, /Stopped after 3 refused action/);
+  assert.equal(result.executions.filter(item => item.outcome === 'failed').length, 3);
+  assert.equal(round, 3, 'the loop stopped at the budget instead of burning every round');
+});
+
+test('a call that actually ran resets the refusal streak', async () => {
+  const write = tool('replace_text', async () => ({ replacements: 1 }));
+  write.risk = 'workspaceWrite';
+  write.mutatesWorkspace = true;
+  const read = tool('read_file', async () => ({ text: 'ok' }));
+  const rounds = [
+    call('c1', 'replace_text', { path: 'a' }),
+    call('c2', 'read_file', { path: 'a' }),
+    call('c3', 'replace_text', { path: 'b' }),
+    call('c4', 'read_file', { path: 'b' })
+  ];
+  const provider = {
+    async *streamAgent() {
+      const next = rounds.shift();
+      if (next) {
+        yield next;
+        return;
+      }
+      yield text('done');
+    }
+  };
+  const loop = new AgentToolLoop(
+    provider,
+    new ToolRegistry([write, read]),
+    new PermissionEngine(),
+    { maxConsecutiveDenials: 2 }
+  );
+  const signal = new AbortController().signal;
+
+  // Two writes are refused in Plan mode, but each is followed by a read that runs,
+  // so the streak never reaches the budget.
+  const result = await loop.run(request, context(signal), 'plan', () => {}, signal);
+
+  assert.equal(result.status, 'completed');
+  assert.equal(result.finalText, 'done');
 });

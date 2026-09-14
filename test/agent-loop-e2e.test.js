@@ -61,7 +61,8 @@ function manualFixProvider(trace) {
   };
 }
 
-/** Plan-denial provider: read first, then attempt an exclusive file creation. */
+/** Plan-denial provider: read first, attempt an exclusive file creation, then
+ * react to the refusal the way a model would. */
 function planDenialProvider() {
   return {
     async *streamAgent(request) {
@@ -73,6 +74,10 @@ function planDenialProvider() {
       const parsed = parseContent(last.content);
       if (last.name === 'read_file' && parsed && parsed.ok) {
         yield { type: 'toolCall', call: { id: 'p2', name: 'create_text_file', input: { path: 'plan-forbidden.txt', content: 'x' } } };
+        return;
+      }
+      if (last.name === 'create_text_file' && parsed && parsed.denied) {
+        yield { type: 'textDelta', text: `refused (${parsed.reason}): I will propose the change instead` };
         return;
       }
       yield { type: 'textDelta', text: 'unexpected' };
@@ -153,9 +158,13 @@ test('v0.2 PermissionEngine: Plan mode denies a workspace write before executing
   const provider = planDenialProvider();
   const signal = new AbortController().signal;
 
-  await assert.rejects(
-    () => runner.run(provider, request, { sessionId: 's-plan', mode: 'plan' }, () => undefined, signal),
-    error => error instanceof Error && /Plan mode/i.test(error.message)
-  );
+  // The essential property is unchanged: Plan mode never creates the file. What
+  // changed is the mechanism — the refusal reaches the model as a tool outcome
+  // labelled `policy`, and the run continues so it can propose instead of the
+  // whole turn dying with a red error (docs/04: all three reference agents
+  // return the refusal to the model and continue).
+  const text = await runner.run(provider, request, { sessionId: 's-plan', mode: 'plan' }, () => undefined, signal);
+
+  assert.match(text, /refused \(policy\)/, 'the model must be told why, and which kind of refusal it was');
   assert.equal(fs.existsSync(target), false, 'Plan mode must not create the file');
 });
