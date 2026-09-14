@@ -124,16 +124,43 @@ Apache-2.0/MIT 等许可证可能允许商业闭源组合，但会带来 attribu
 
 由此推导的 Yisi 需求：见下方"三家收敛"。
 
+### Claude Code（Anthropic，2026-09-14）
+
+来源：官方文档 `code.claude.com/docs/*`（Claude Code 文档现址）、Anthropic 官方工程博客、以及 `github.com/anthropics/claude-code` 的 issue **标题**（正文因 API 限流未能读取，仅作线索）。行为描述，未复制 prompt、代码或品牌资产。
+
+观察到的行为 / 架构思想：
+1. **六个模式**（不是四个）：`default`（UI 标签 Manual）/ `acceptEdits` / `plan` / `auto` / `dontAsk` / `bypassPermissions`。官方框定为"便利与监督之间的不同取舍"。`dontAsk` 是**锁定型 CI 档**：任何本会询问的动作直接**拒绝且不等待**；`bypassPermissions` 有几道硬门槛（root/sudo 下拒绝、需一次性责任确认弹窗、管理员可禁用、无法从非 bypass 会话中途进入）。
+2. **模式不进 system prompt**：官方明确"Switching between permission modes … does not change the system prompt or tool definitions, so mode changes are cache-safe"，plan 模式等指令是**以对话消息追加**的。**执行与模型无关**："Permission rules are enforced by Claude Code, not by the model."
+3. **模型被告知的是"结局"而非"模式名"**：拒绝会把原因回给模型；`PermissionDenied` 钩子的 `retry: true` 用来"告诉模型它可以重试那次被拒的调用"；无头 `--permission-prompts none` 下明确告知"没人能批准、不要重试"。
+4. **拒绝 = 反馈而不是失败**（engineering 博客 *Deny-and-continue* 一节）：拒绝作为**工具结果**返回，并附带"按善意对待这条边界：找更安全的路，不要绕过它"。理由是**让误判可承受**——"a false positive costs a single retry"。
+5. **终止是例外，且有阈值**：交互式"拒绝且**不给评论**"会停轮（**给了评论**则评论作为拒绝原因、模型继续）；prompt 型 hook 拒绝默认停轮，除非 `continueOnBlock: true`；**连续 3 次或累计 20 次拒绝 → 停下升级给人**，无头模式（无人在场）直接终止进程。
+6. **优先用结构性信号**：**裸工具名的 deny 规则会把该工具从模型上下文里彻底移除**——"Claude never sees it"，模型根本无法尝试；其余才靠拒绝反馈。
+7. **plan 有专用工具**：`EnterPlanMode`（permission: No）与 **`ExitPlanMode`（permission: Yes）**；批准弹窗的**每个选项都携带后果**（"Yes, and use auto mode" / "Yes, manually approve edits" / "No, keep planning"），"Approving a plan exits plan mode and **switches the session to the permission mode each approve option describes**"。
+8. **plan 不是硬沙箱**（官方自陈 + 3 个用户 issue）：当 bypass 可用时"Claude Code also doesn't enforce plan mode's blocks"，只是**指示**模型不要编辑，实际写入不会被拦。
+9. **规则优先级**：`deny` > `ask` > `allow`，且 deny **在所有模式下都生效（含 bypassPermissions）**，allow 在 bypass 下无效；plan 模式下写入**永不**被 allow 规则自动批准；受保护路径（`.git`/`.vscode`/`.npmrc`/shell rc 等）的写入不能被 settings 里的 allow 规则预先批准；`rm`/`rmdir` 命中关键路径时**任何 allow 规则与 hook 都不能放行**（明确的"防模型犯错"断路器）。
+10. **自陈的坑**：审批疲劳是功能存在的理由（官方数据：**93% 的提示被批准**、分类器对真实越权动作的**漏报率 17%**）；`acceptEdits` 名字比实际窄——它连 `rm`/`mv`/`cp`/`sed` 都自动放行；文件修改类批准**只持续到会话结束**而 Bash 类按仓库持久（易记错）；"don't ask again"的**持久化写回路径是官方 tracker 上被反复报告的最弱环节**（5 个 issue）。
+
+由此推导：见下方"三家收敛"与"结论"。
+
 ### 三家收敛（DeepSeek Harness / Codex / Claude Code）
 
 | 维度 | 三家的一致结论 |
 |---|---|
-| **被拒之后** | **三家一致：拒绝是"单次调用/单个条目"的结局回给模型，运行继续**，而不是终止整轮。（CC 原文："Claude shouldn't halt and wait for input; it should recover and try a safer approach where one exists."） |
-| **必须有界** | **三家一致：继续但要有限额**。CC：连续 3 次或累计 20 次拒绝 → 停下升级给人（无头模式直接终止进程）；Codex：连续 3 次或最近 50 次内 10 次 → 中断本轮；DSH：同一轮内**仅一次**、且必须"有据可依 + 严格更宽 + 人来批"的升级重试。 |
-| **要有恢复路径** | DSH 明确记录：**没有恢复路径的拒绝是死路，会逼用户全局放开更宽的档位，反而毁掉沙箱**。Codex/CC 同样把拒绝与一次升级/重试配对。 |
-| **模型是否被告知** | DSH：是，且**刻意不放进 system prompt**（早期放进去导致"soft lockout"——模型不再尝试"被拒但可升级"的工作，出现零工具调用的空转）；CC：无头模式下明确告知"没人能批准、不要重试"；Codex：自动审查的拒绝理由会回给模型，**开局是否告知模式未见文档**。 |
-| **两根轴 vs 一个滑杆** | Codex 与 DSH 都是**两根独立的轴**（技术边界 + 何时问），但**都再打包成一个用户可见的选择器**（Codex 的权限配置档 / DSH 的 permission preset）。→ Yisi 的单选择器 5 档方向正确。 |
-| **allow-always** | DSH 没有（存储/作用域/撤销未设计）；Codex 有（前缀规则、持久、写入前给用户看）；CC 有（allow/ask/deny 规则表）。→ 能做，但要有"可审查 + 前缀限定 + 最严者胜"的语义。 |
-| **plan 模式** | DSH：plan **只是引导、不是强制**，且有"被审阅的退出"工具；CC：有 plan 模式与退出/审批机制；Codex：无 plan 概念。 |
+| **被拒之后** | **三家一致：拒绝是"单次调用/单个条目"的结局回给模型，运行继续**。（CC 原文："Claude shouldn't halt and wait for input; it should recover and try a safer approach where one exists."） |
+| **必须有界** | **三家一致：继续但要有限额**。CC：连续 3 次或累计 20 次 → 停下升级给人（无头模式直接终止进程）；Codex：连续 3 次或最近 50 次内 10 次 → 中断本轮；DSH：同一轮内**仅一次**、且必须"有据可依 + 严格更宽 + 人来批"的升级重试。 |
+| **要有恢复路径** | DSH：**没有恢复路径的拒绝是死路，会逼用户全局放开更宽的档位，反而毁掉沙箱**。CC/Codex 同样把拒绝与一次升级/重试配对。 |
+| **模式是否进 system prompt** | **CC 与 DSH 都明确：不进**。CC 理由是 cache 安全（"mode changes are cache-safe"），指令以**对话消息追加**；DSH 除 cache 外还记录了**实证教训**——早期放进 system prompt 导致"soft lockout"（模型不再尝试"被拒但可升级"的工作、出现零工具调用的空转）。Codex 未见文档。 |
+| **执行与模型分离** | 三家一致：**执行在宿主侧，模型只被告知结局**。CC 原文："Permission rules are enforced by Claude Code, not by the model." |
+| **两根轴 vs 一个滑杆** | Codex 与 DSH 都是**两根独立的轴**（技术边界 + 何时问），但**都再打包成一个用户可见的选择器**；CC 是"模式设基线 + 规则表叠加"。→ **Yisi 的单选择器 5 档方向正确，但缺一个正交的技术边界轴。** |
+| **结构性信号优先** | CC：完全拒绝的工具**直接从工具表移除**，模型看不到、无法尝试（比"尝试后被拒"更明确）。 |
+| **allow-always** | DSH 没有（存储/作用域/撤销未设计）；Codex 有（前缀规则、持久、写入前给用户看）；CC 有（allow/ask/deny 表）——**但 CC 的持久化写回正是被报告最多的 bug 区**。 |
+| **plan 模式** | DSH：plan **只是引导、不是强制**，有"被审阅的退出"工具；CC：有 `EnterPlanMode`/`ExitPlanMode`，批准时**选项携带后果**（切到哪个模式），且官方自陈**在 bypass 可用时 plan 不是硬沙箱**；Codex：无 plan 概念。 |
+
+### 结论：Yisi 的三个真正缺口
+
+1. **拒绝太致命**（三家共识的反面）：策略拒绝与用户拒绝都终止整轮，模型既不知情也无法给替代方案；且没有拒绝预算。
+2. **模式简报的位置与措辞与两家实证相悖**：Yisi 现放在会话首条 system 消息，且对 plan 写"不要尝试"——正是 DSH 记录过的 soft-lockout 形态。
+3. **Yisi 的 `plan` 把两个概念混在一起**：它既表示"先计划再动手"（协作模式），又用硬拒绝充当"只读"（执行级别）。CC 与 DSH 都把两者分开——这正是用户"选 Plan 问一句话却拿到红色报错"的根因。
+
 
 
