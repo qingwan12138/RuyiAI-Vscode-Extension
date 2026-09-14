@@ -3,6 +3,8 @@
 ## 主界面
 Sidebar/Webview：会话列表 + 当前 conversation + composer。输入区附近持续可见：当前模型、权限模式、运行状态。
 
+**主界面 = 空会话**：⌂（回到主界面）在当前会话有内容时**新开会话**（旧对话保留在 Session history），已空时复用不重复创建；因此左上角标题恒为 `New Chat`，不会残留上一个会话的名字。切勿在非空会话上直接显示主界面并沿用其标题——那样界面看起来是全新开始，而实际输入会继续旧会话。启动时仍按 AGENTS.md 的旧规则显示主界面（不得直接落进上一个对话），此为该语义唯一未覆盖的情形。
+
 ## 设置齿轮
 进入 Provider 管理向导：Provider → Base URL → Credential Source(SecretStorage/env) → API Key（若需要）→ Model → Test Connection → Save。
 

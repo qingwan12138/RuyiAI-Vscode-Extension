@@ -1039,7 +1039,7 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     <header class="topbar">
       <div class="session-title" id="sessionTitle">New Chat</div>
       <div class="top-actions">
-        <button class="icon-button" id="homeButton" type="button" title="Back to main screen" aria-label="Back to main screen">⌂</button>
+        <button class="icon-button" id="homeButton" type="button" title="New chat — back to the main screen" aria-label="New chat and back to the main screen">⌂</button>
         <button class="icon-button" id="historyButton" type="button" title="Session history" aria-label="Session history">◷</button>
         <button class="icon-button" id="newChat" type="button" title="New session" aria-label="New session">＋</button>
         <button class="icon-button" id="ruyiButton" type="button" title="Ruyi 环境" aria-label="Ruyi environment">◈</button>
@@ -1814,11 +1814,19 @@ ${permissionClientScript()}
       showHistory(historyPanel.hidden);
     });
 
-    document.getElementById('homeButton').addEventListener('click', () => {
+    // The main screen belongs to a fresh session, so its title reads "New Chat"
+    // instead of naming the conversation just left. An already-empty session is
+    // reused rather than piling up blank ones; the previous conversation stays in
+    // Session history.
+    function goHome() {
+      const leavingContent = !!activeSession && activeSession.items.length > 0;
       viewMode = 'welcome';
       showHistory(false);
       input.focus();
-    });
+      if (leavingContent) vscode.postMessage({ type: 'newChat' });
+    }
+
+    document.getElementById('homeButton').addEventListener('click', goHome);
 
     document.getElementById('closeHistory').addEventListener('click', () => showHistory(false));
 

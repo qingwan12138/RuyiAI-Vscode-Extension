@@ -157,8 +157,7 @@ test('deleting or renaming a session leaves an open history panel open', () => {
   assert.match(functionBody(source, 'appendMessage'), /if \(historyPanel\.hidden\)/);
 });
 
-test('the content area stays with an open history panel across a state refresh', () => {
-  // Drive the real renderView()/showHistory() logic lifted out of the embedded
+test('the content area stays with an open history panel across a state refresh', () => {  // Drive the real renderView()/showHistory() logic lifted out of the embedded
   // webview script, against stub elements, instead of only pattern-matching it.
   function element() {
     const classes = new Set();
@@ -224,4 +223,58 @@ test('the content area stays with an open history panel across a state refresh',
   assert.equal(historyPanel.hidden, true);
   assert.equal(welcome.style.display, 'none');
   assert.equal(conversation.classes.has('visible'), true);
+});
+
+test('going home leaves a fresh session, so the title matches the main screen', () => {
+  // Reported: pressing the main-screen button kept the previous conversation's
+  // name in the top bar while the screen looked like a fresh start. The main
+  // screen now belongs to a fresh session, and an empty one is reused instead of
+  // stacking up blank sessions.
+  function build() {
+    const posted = [];
+    const focusCalls = [];
+    const historyCalls = [];
+    const factory = new Function('showHistory', 'input', 'vscode', `
+      let viewMode = 'conversation';
+      let activeSession;
+      ${functionBody(source, 'goHome')}
+      return {
+        goHome,
+        session(next) { activeSession = next; },
+        mode() { return viewMode; }
+      };
+    `);
+    return {
+      view: factory(
+        visible => historyCalls.push(visible),
+        { focus: () => focusCalls.push(true) },
+        { postMessage: message => posted.push(message) }
+      ),
+      posted,
+      focusCalls,
+      historyCalls
+    };
+  }
+
+  // Leaving a conversation with content: start a new session.
+  const withContent = build();
+  withContent.view.session({ items: [{ type: 'userMessage', text: 'hi' }] });
+  withContent.view.goHome();
+  assert.equal(withContent.view.mode(), 'welcome');
+  assert.deepEqual(withContent.posted, [{ type: 'newChat' }]);
+  assert.deepEqual(withContent.historyCalls, [false], 'the history overlay is closed');
+  assert.equal(withContent.focusCalls.length, 1, 'the composer takes focus');
+
+  // An already-empty session is reused: no second blank session.
+  const empty = build();
+  empty.view.session({ items: [] });
+  empty.view.goHome();
+  assert.equal(empty.view.mode(), 'welcome');
+  assert.deepEqual(empty.posted, [], 'no blank session is stacked on a blank one');
+
+  // A missing session must not throw.
+  const none = build();
+  none.view.session(undefined);
+  none.view.goHome();
+  assert.deepEqual(none.posted, []);
 });
