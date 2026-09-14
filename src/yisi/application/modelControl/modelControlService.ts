@@ -2,6 +2,7 @@ import { ProviderConfigurationService } from '../provider/providerConfigurationS
 import { SessionService } from '../session/sessionService';
 import { ProviderConfiguration, ReasoningMode, isReasoningPreset } from '../../domain/providerConfiguration';
 import { ReasoningPreset, SpeedMode } from '../../domain/session';
+import { knownModelsFor } from '../../domain/providerDefaults';
 
 export interface ModelControlCapabilities {
   reasoningMode: ReasoningMode;
@@ -20,6 +21,12 @@ export interface ModelControlModelView {
   name: string;
   available: boolean;
   capabilities: ModelControlCapabilities;
+  /**
+   * Set when this is a retired id the provider still accepts: the current model
+   * that serves those requests. The picker labels it instead of hiding the id,
+   * so a legacy choice is never silently presented as a current model.
+   */
+  legacyOf?: string;
 }
 
 export interface ModelControlProviderView {
@@ -66,16 +73,24 @@ export class ModelControlService {
     const model = this.sessions.getActiveSession().model;
     const providers: ModelControlProviderView[] = [];
     for (const configuration of this.configurations.list()) {
+      // Which of this provider's ids are retired, by kind. Kept in the domain so
+      // the Webview never learns model naming rules.
+      const known = new Map(knownModelsFor(configuration.kind).map(entry => [entry.id, entry]));
       providers.push({
         id: configuration.id,
         name: configuration.name,
         configured: await this.isConfigured(configuration),
-        models: configuration.models.map(modelId => ({
-          id: modelId,
-          name: modelId,
-          available: true,
-          capabilities: capabilitiesOf(configuration, modelId)
-        }))
+        models: configuration.models.map(modelId => {
+          const entry = known.get(modelId);
+          const legacyOf = entry?.status === 'legacy' ? entry.servedBy : undefined;
+          return {
+            id: modelId,
+            name: modelId,
+            available: true,
+            capabilities: capabilitiesOf(configuration, modelId),
+            ...(legacyOf ? { legacyOf } : {})
+          };
+        })
       });
     }
 

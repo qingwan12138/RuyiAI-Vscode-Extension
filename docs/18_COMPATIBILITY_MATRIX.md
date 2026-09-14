@@ -41,7 +41,7 @@ All are registered in `THIRD_PARTY_NOTICES.md` and enforced by `test/dependency-
 
 | area | count | notes |
 | --- | --- | --- |
-| full `node --test test/*.test.js` | **434 tests / 433 pass / 0 fail (1 skip)** | 1 skip = Windows symlink case in the workspace FS suite. |
+| full `node --test test/*.test.js` | **437 tests / 436 pass / 0 fail (1 skip)** | 1 skip = Windows symlink case in the workspace FS suite. |
 | real-dependency PDF extraction (`test/pdf-real-extractor.test.js`) | 5 pass | Loads the real pdfjs-dist 4.10.38 through the production loader (dynamic ESM import + worker preload); guards the CVE-2024-4367 version floor and the extension-host Node floor. |
 | session auto-titling (`test/session-title.test.js`, `test/session-auto-title.test.js`) | 13 pass | Pure prompt/parse logic plus the ChatService hook: one bare extra request after the first exchange, never over a user rename. |
 | agent-loop e2e (v0.2/v0.3 DoD) | pass | real tools + real `node calc.test.mjs`. Known flaky under full-suite parallelism (`replace_text` sha race against a real subprocess): passes in isolation and on re-run. |

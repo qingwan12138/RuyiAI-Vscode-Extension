@@ -252,9 +252,20 @@ export function modelControlStyles(): string {
       white-space: nowrap;
     }
 
-    .mcv-option .check {
+    .mcv-option .legacy {
       flex: 0 0 auto;
       order: 2;
+      padding: 0 4px;
+      border-radius: 999px;
+      background: var(--yisi-surface);
+      color: var(--yisi-muted);
+      font-size: 8px;
+      white-space: nowrap;
+    }
+
+    .mcv-option .check {
+      flex: 0 0 auto;
+      order: 3;
       color: var(--vscode-foreground);
       font-size: 11px;
     }
@@ -513,6 +524,13 @@ function createYisiModelControl(vscode) {
         option.className = 'mcv-option';
         option.setAttribute('aria-checked', selected ? 'true' : 'false');
         option.appendChild(el('span', 'name', model.name));
+        if (model.legacyOf) {
+          // A retired id the provider still accepts. Label it and explain the
+          // routing in the tooltip rather than presenting it as a current model.
+          option.appendChild(el('span', 'legacy', '旧名'));
+          option.title = model.name + ' 是已下线的旧模型名，仍可调用；请求由 '
+            + model.legacyOf + ' 提供。';
+        }
         option.appendChild(el('span', 'check', selected ? '✓' : ''));
         option.addEventListener('click', function () {
           vscode.postMessage({ type: 'modelControl.selectModel', providerId: provider.id, modelId: model.id });

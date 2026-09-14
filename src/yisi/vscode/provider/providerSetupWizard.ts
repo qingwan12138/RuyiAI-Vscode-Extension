@@ -13,7 +13,7 @@ import {
   createProviderConfiguration,
   providerKindRequiresCredential
 } from '../../domain/providerConfiguration';
-import { defaultModelsFor } from '../../domain/providerDefaults';
+import { defaultModelsFor, mergeDiscoveredModels } from '../../domain/providerDefaults';
 import {
   LocalDevicePreset,
   LOCAL_DEVICE_PRESETS
@@ -221,7 +221,9 @@ export class ProviderSetupWizard {
     const discovered = await this.testAndDiscover(draft, resolvedKey, profile.defaultName);
     if (discovered === undefined) return undefined;
 
-    let models = discovered;
+    // Union, not replace: the endpoint lists only the current models, and the
+    // legacy ids it still accepts must stay visible (see providerDefaults).
+    let models = mergeDiscoveredModels(draft.kind, discovered);
     if (models.length === 0) {
       const manual = await this.enterModelsManually();
       if (manual === undefined) return undefined;
@@ -435,9 +437,11 @@ export class ProviderSetupWizard {
     try {
       const instance = this.factory.create({ ...provider, models: baseModels }, apiKey ?? undefined);
       const discovered = await instance.listModels();
-      await this.configurations.replaceModels(provider.id, discovered);
+      // Same union as the add flow: refreshing must not drop the legacy ids.
+      const models = mergeDiscoveredModels(provider.kind, discovered);
+      await this.configurations.replaceModels(provider.id, models);
       void vscode.window.showInformationMessage(
-        `${provider.name}: refreshed to ${discovered.length} model(s).`
+        `${provider.name}: refreshed to ${models.length} model(s).`
       );
       return false;
     } catch (error: unknown) {

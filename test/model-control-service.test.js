@@ -214,3 +214,40 @@ test('fixed reasoning models do not surface a preset list in the UI', async () =
   assert.equal(state.current.capabilities.reasoningMode, 'fixed');
   assert.deepEqual(state.current.capabilities.reasoningPresets, []);
 });
+
+test('retired DeepSeek ids are listed and marked with the model that serves them', async () => {
+  const { configurations, service } = await createHarness();
+  await configurations.create(
+    providerInput({
+      kind: 'deepseek',
+      name: 'DeepSeek',
+      models: [
+        'deepseek-flash',
+        'deepseek-v4-pro',
+        'deepseek-v4-flash',
+        'deepseek-v4-flash-vision-exp'
+      ],
+      // The deepseek kind requires a credential source.
+      credential: { source: 'environment', variableName: 'DS_KEY' }
+    }),
+    undefined
+  );
+
+  const state = await service.getState();
+  const models = state.providers[0].models;
+
+  // All four stay selectable, so a session already bound to a retired id keeps
+  // working and the user can see what the retired names route to.
+  assert.deepEqual(models.map(model => model.id), [
+    'deepseek-flash',
+    'deepseek-v4-pro',
+    'deepseek-v4-flash',
+    'deepseek-v4-flash-vision-exp'
+  ]);
+  // Current models carry no marker.
+  assert.equal(models[0].legacyOf, undefined);
+  assert.equal(models[1].legacyOf, undefined);
+  // Retired ids name the current model that actually serves the request.
+  assert.equal(models[2].legacyOf, 'deepseek-flash');
+  assert.equal(models[3].legacyOf, 'deepseek-flash');
+});
