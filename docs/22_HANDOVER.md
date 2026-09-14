@@ -71,8 +71,12 @@ infrastructure  ->  domain ports
 
 ## 4. 关键设计决策与已知坑（接手必读）
 
-1. **PDF 解析**：必须用 `pdfjs-dist@3.11.174` 的 **legacy CommonJS**（`require('pdfjs-dist/legacy/build/pdf.js')`），并设置 `GlobalWorkerOptions.workerSrc` + 把 worker 模块预载到 `globalThis.pdfjsWorker`。4.x ESM 或动态 import worker 会报 "PDF parser could not initialize" / "document is not defined"。
-2. **附件重活**：docx（mammoth）/pdfjs 为**懒加载**（首次附加才 require），会造成扩展宿主 ~1-2s 停顿；已加"首次附加提示"。**不要**把它们静态打包进 bundle（见 §6）。
+1. **PDF 解析**：用 `pdfjs-dist@4.10.38`，经**真实动态 `import('pdfjs-dist/legacy/build/pdf.mjs')`** 加载（4.x 起 **没有** CJS 构建，不能 `require`），并设置 `GlobalWorkerOptions.workerSrc`（指向 `…/pdf.worker.mjs`）+ 把 worker 模块预载到 `globalThis.pdfjsWorker`。两处必须记住的纠正：
+   - **安全下限**：3.11.174 及所有 `<4.2.67` 存在 **CVE-2024-4367 / GHSA-wgrm-67xf-hhpq**（打开恶意 PDF 即可执行攻击者 JS）；上游在 4.2.67 移除了该 `eval` 路径。**不要回退到 3.x**。提取器同时始终传 `isEvalSupported: false`（该漏洞的运行时兜底，也不要动）。
+   - **旧结论已推翻**：本文档早前写的“4.x ESM 在扩展宿主不可用、必须用 3.x”是**误判**。当初 4.x 失败的真实原因是 worker 自举需要 DOM/shim；而那套修复（`workerSrc` + `globalThis.pdfjsWorker` 预载）是在改用 3.x **之后**才发明的，只被套用到了 3.x 路径。同样两个修复套到 4.x 上即可正常工作（见 `test/pdf-real-extractor.test.js` 的真实依赖端到端验证）。
+   - **5.x/6.x 暂不可用**：它们声明 `engines.node >=22.13`，而 `engines.vscode ^1.95.0` 的宿主是 Electron 32 / Node 20.18.1。要升 5.x/6.x 必须先抬高 `engines.vscode` 并重新在 VS Code 里验证。
+   - 回退守卫：`test/pdf-real-extractor.test.js` 同时断言版本下限与宿主 Node 兼容性。
+2. **附件重活**：docx（mammoth）/pdfjs 为**懒加载**（首次附加才加载），会造成扩展宿主 ~1-2s 停顿；已加"首次附加提示"。**不要**把它们静态打包进 bundle（见 §6）。
 3. **错误可见性**：`sessionError` 必须在 `publishState` **之后**发出，否则 Webview 重建会话会把错误清掉（表现为"Thinking… 后无下文"）。webview 侧现在渲染**持久红色错误气泡**。改动此顺序会复现该 bug。
 4. **"文本 + 工具调用"同轮**：DeepSeek 等模型会在同一轮返回前言文本 + tool_calls，这是**合法**的；传输层与 loop 都已接受，前言作为 assistant content 保留。不要恢复"mixed → 报错"。
 5. **Manual/Auto 确认**：`toolConfirmationSummary` 必须覆盖**所有**需确认工具（含 run_command/rename/delete/mkdir/undo/run_validations），否则会**静默拒绝**并整轮 blocked。

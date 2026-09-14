@@ -204,7 +204,7 @@
   "dependencies": {
     "jszip": "^3.10.1",
     "mammoth": "^1.12.2",
-    "pdfjs-dist": "^3.11.174",
+    "pdfjs-dist": "^4.10.38",
     "read-excel-file": "^9.3.10"
   }
 }

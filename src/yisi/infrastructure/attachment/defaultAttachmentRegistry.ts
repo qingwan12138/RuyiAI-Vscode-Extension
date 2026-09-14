@@ -26,41 +26,55 @@ function cached<T>(id: string): () => T {
   };
 }
 
-// pdfjs-dist 4.x is ESM-only and cannot be `require`d from a CommonJS build, so
-// its dynamic `import()` + fake-worker bootstrap fails inside the Electron
-// extension host ("The PDF parser could not initialize correctly..."). We pin
-// the 3.x legacy UMD build instead: it is CommonJS (`require`) loadable, works
-// in the extension host, and its text-layer API is identical for our use.
+// pdfjs-dist is pinned to the 4.x line: 3.11.174 (the last CommonJS build) is
+// affected by CVE-2024-4367 / GHSA-wgrm-67xf-hhpq, where opening a malicious PDF
+// executes attacker-controlled JavaScript unless `isEvalSupported` is false. The
+// `eval` path was removed in 4.2.67. The 5.x/6.x lines are deliberately not used
+// yet: they declare `engines.node >=22.13`, while the declared baseline
+// `engines.vscode ^1.95.0` ships Electron 32 / Node 20.18.1 in the extension
+// host. 4.10.38 is the newest release that both contains the fix and still runs
+// on the supported host (it declares `engines.node >=20`).
 //
-// Two host quirks are patched before first use:
+// 4.x is ESM-only, so there is no CommonJS build left to `require`: the legacy
+// build has to come in through a real dynamic `import()`. The specifiers are
+// held in `string` variables on purpose — TypeScript then leaves the dynamic
+// import alone instead of downlevelling it to `require()`, and it will not try
+// to resolve a `.mjs` type surface we do not depend on. (`module: Node16` in
+// tsconfig also preserves it; see the dist inspection in docs/22.)
+//
+// Two extension-host quirks are patched before first use, exactly as the old
+// CommonJS build needed:
 //  * pdf.js needs an explicit worker path, else it throws
 //    "No 'GlobalWorkerOptions.workerSrc' specified." → workerSrc points at the
-//    legacy CJS worker.
+//    legacy ESM worker.
 //  * its fake-worker bootstrap either has to dynamically `import()` the worker
-//    (which trips "document is not defined" in the host) or, if a `document`
-//    shim is present, fails into a browser-like code path (bare TypeError while
-//    reading pages). Instead we preload the worker module onto
+//    itself (which trips "document is not defined" in the host) or, if a
+//    `document` shim is present, fails into a browser-like code path (bare
+//    TypeError while reading pages). Instead we preload the worker module onto
 //    `globalThis.pdfjsWorker` so pdf.js reuses it directly and never needs the
 //    DOM shims at all.
+const PDFJS_MAIN_SPECIFIER: string = 'pdfjs-dist/legacy/build/pdf.mjs';
+const PDFJS_WORKER_SPECIFIER: string = 'pdfjs-dist/legacy/build/pdf.worker.mjs';
+
 function cachedPdfJs(): () => Promise<PdfJsModule> {
   let modulePromise: Promise<PdfJsModule> | undefined;
   return () => {
-    modulePromise ??= Promise.resolve().then(() => {
-      const pdfjs = require('pdfjs-dist/legacy/build/pdf.js') as PdfJsModule &
+    modulePromise ??= (async () => {
+      const pdfjs = (await import(PDFJS_MAIN_SPECIFIER)) as unknown as PdfJsModule &
         { GlobalWorkerOptions?: { workerSrc?: string } };
       try {
         if (pdfjs.GlobalWorkerOptions) {
-          pdfjs.GlobalWorkerOptions.workerSrc = require.resolve('pdfjs-dist/legacy/build/pdf.worker.js');
+          pdfjs.GlobalWorkerOptions.workerSrc = require.resolve(PDFJS_WORKER_SPECIFIER);
         }
         const scope = globalThis as Record<string, unknown>;
         if (scope.pdfjsWorker === undefined) {
-          scope.pdfjsWorker = require('pdfjs-dist/legacy/build/pdf.worker.js');
+          scope.pdfjsWorker = await import(PDFJS_WORKER_SPECIFIER);
         }
       } catch {
         // Worker preload/path resolution is best-effort; pdf.js falls back.
       }
       return pdfjs;
-    });
+    })();
     return modulePromise;
   };
 }

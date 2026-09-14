@@ -30,6 +30,8 @@ export interface PdfDocumentLike {
 export interface PdfPageLike {
   getTextContent(): Promise<{ items: Array<{ str: string; hasEOL?: boolean }> }>;
 }
+/** The subset of the pdf.js API Yisi depends on. The `getDocument` options below
+ * are the exact set verified against pdfjs-dist 4.10.38. */
 export interface PdfJsModule {
   getDocument(source: {
     data: Uint8Array;
@@ -123,7 +125,9 @@ interface PdfDecodedImage {
   kind?: number;
   data?: Uint8Array | Uint8ClampedArray | null;
 }
-// pdf.js ImageKind enum (stable across 3.x): 2 = RGB, 3 = RGBA, 4 = gray8.
+// pdf.js ImageKind enum: 2 = RGB, 3 = RGBA, 4 = gray8. Re-verified unchanged on
+// pdfjs-dist 4.10.38 — this value is part of the internal object-store contract
+// the raster path reads, so it is guarded by test/pdf-real-extractor.test.js.
 const IMAGE_KIND_RGB = 2;
 const IMAGE_KIND_RGBA = 3;
 const IMAGE_KIND_GRAY8 = 4;
@@ -226,7 +230,11 @@ export class PdfExtractor implements AttachmentExtractor {
     let document: PdfDocumentLike | undefined;
     try {
       const pdfjs = await this.loadPdfJs();
-      // isEvalSupported:false forbids PDF JavaScript / dynamic code execution;
+      // SECURITY: isEvalSupported:false is what keeps CVE-2024-4367
+      // (GHSA-wgrm-67xf-hhpq — arbitrary attacker JS executed while opening a
+      // malicious PDF) unexploitable here, and it must never be flipped back to
+      // the pdf.js default of true. The eval path itself is also gone from the
+      // pinned 4.10.38 build (removed upstream in 4.2.67).
       // verbosity:0 keeps Node font/warning noise out of the extension host.
       document = await pdfjs.getDocument({
         data: new Uint8Array(input.bytes),
@@ -358,6 +366,9 @@ export class PdfExtractor implements AttachmentExtractor {
       if (error instanceof AttachmentExtractionError) throw error;
       throw new AttachmentExtractionError('PDF text extraction failed.', { cause: error });
     } finally {
+      // `destroy()` lives on the document proxy in 3.x/4.x (verified on
+      // 4.10.38). Upstream moved it to the loading task in 5.x/6.x, so a future
+      // version bump must keep the loading task and destroy that instead.
       await document.destroy().catch(() => undefined);
     }
   }
