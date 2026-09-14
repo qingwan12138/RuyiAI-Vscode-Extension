@@ -29,8 +29,11 @@ const KNOWN_WINDOWS: Readonly<Record<string, number>> = {
   'claude-opus': 200_000,
   'claude-haiku': 200_000,
   'claude-4': 200_000,
-  // DeepSeek chat/reasoner 64k; V4 family is million-token context per public
-  // releases ("Million-Token Context"), so V4-prefixed ids get 1M.
+  // DeepSeek chat/reasoner 64k; the current lineup (deepseek-flash =
+  // DeepSeek-V4.1-Flash, deepseek-v4-pro) is million-token context per the
+  // official Models & Pricing table. Note `deepseek-flash` carries no `v4`
+  // prefix, so it needs its own entry instead of the `deepseek-v4` one.
+  'deepseek-flash': 1_000_000,
   'deepseek-chat': 64_000,
   'deepseek-reasoner': 64_000,
   'deepseek-v4': 1_000_000,

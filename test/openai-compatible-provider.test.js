@@ -59,8 +59,14 @@ test('recognizes centralized DeepSeek vision model ids and exposes image transpo
   });
 
   assert.equal(provider.imageInputTransport, true);
+  // The current DeepSeek vision model is plain `deepseek-flash`
+  // (DeepSeek-V4.1-Flash) and carries no marker in its id; the retired
+  // `deepseek-v4-flash*` aliases are served by the same model. Together with
+  // imageInputTransport this is both halves of the attachment vision gate.
+  assert.equal((await provider.capabilities('deepseek-flash')).vision, true);
   assert.equal((await provider.capabilities('deepseek-v4-flash-vision-exp')).vision, true);
-  assert.equal((await provider.capabilities('deepseek-v4-flash')).vision, false);
+  assert.equal((await provider.capabilities('deepseek-v4-flash')).vision, true);
+  assert.equal((await provider.capabilities('deepseek-v4-pro')).vision, false);
 });
 
 test('streams text deltas and sends the compatible request shape', async () => {

@@ -83,7 +83,7 @@ infrastructure  ->  domain ports
 6. **写 session 隔离**：只在 **git 仓库**内做 worktree 隔离；非 git 工作区或 worktree 创建失败必须**优雅降级**为共享工作区（否则普通文件夹无法用 Agent）。
 7. **context 压缩触发条件**：仅当 provider 声明 `capabilities.maxContextTokens` 时生效；预算 = `window × historyBudgetRatio(默认 0.6) − CONTEXT_OVERHEAD(2000) − 当前轮`。窗口未知则不压缩。
 8. **权限风险类型**：`readOnly` / `workspaceWrite` / `processExec` / `environmentChange` / `destructive` / `credentialSensitive`。loop 的 bounded scope 接纳前四类中的 readOnly/workspaceWrite/processExec/environmentChange，且**始终经 PermissionEngine**（plan 拒绝；manual/auto/acceptEdits 确认；fullAccess 放行，destructive/credentialSensitive 仍确认）。
-9. **窗口/能力表**：`modelContextWindow`（V4 = 1M、chat/reasoner = 64k）、`modelCapabilities`（仅 `…-vision-exp` 支持图像）、`providerDefaults`（DeepSeek V4 阵容）都在 **domain 纯模块**，不要把模型命名规则散到 Webview 或 vscode 层。
+9. **窗口/能力表**：`modelContextWindow`（DeepSeek 当前两个模型 `deepseek-flash` / `deepseek-v4-pro` 都是 **1M**；`deepseek-chat` / `deepseek-reasoner` 是 64k）、`modelCapabilities`（DeepSeek 的视觉模型是 **`deepseek-flash`**（= DeepSeek-V4.1-Flash），它 id 里**没有** vision 标记，因此靠 `DEEPSEEK_VISION` 显式表判定；`deepseek-v4-pro` 不支持图像）、`providerDefaults`（当前阵容只有 `deepseek-flash` + `deepseek-v4-pro`）都在 **domain 纯模块**，不要把模型命名规则散到 Webview 或 vscode 层。**不要**再假设 `deepseek-v4-flash-vision-exp` 是唯一视觉模型——它已退役（仍被 API 接受但由 V4.1-Flash 承接）。
 10. **图标限制**：活动栏可用自定义 SVG；**editor/title 与状态栏只接受 codicon / 图标字体**（`contributes.icons` 需 `fontPath + fontCharacter`，id 必须形如 `component-iconname`）。
 11. **不要自动恢复长进程**：会话中断只能记录 + 让用户 Resume（软恢复：启动时提示"继续"并重发最后一条消息）。
 12. **不要默认读 `.gitignore` 内容**（用户显式引用除外）。
