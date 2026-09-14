@@ -173,7 +173,13 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
       };
     },
     new VsCodeAttachmentRehydrator(attachmentService),
-    agentWorkspace.sessionResolver ? session => agentWorkspace.sessionResolver!.resolve(session) : undefined
+    agentWorkspace.sessionResolver ? session => agentWorkspace.sessionResolver!.resolve(session) : undefined,
+    undefined, // historyBudgetRatio: keep the application-layer default
+    {
+      autoTitle: () => ({
+        enabled: vscode.workspace.getConfiguration('yisiAI').get<boolean>('sessionAutoTitle', true)
+      })
+    }
   );
   const chatView = new YisiChatViewProvider(
     context.extensionUri,

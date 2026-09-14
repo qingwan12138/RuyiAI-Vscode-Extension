@@ -154,6 +154,25 @@ export class SessionService {
     }));
   }
 
+  /**
+   * Applies a title generated from the session's first exchange. Returns whether
+   * it was applied. A user rename always wins: the title request is in flight
+   * while the user may be renaming the same session, and `renameSession` marks
+   * the session 'manual', which this refuses to overwrite.
+   */
+  setAiTitle(sessionId: string, title: string): Promise<boolean> {
+    return this.enqueue(() => this.mutate(workspace => {
+      const normalized = requireText(title, 'Session title');
+      const session = this.findSession(workspace.sessions, sessionId);
+      if (session.titleSource === 'manual') return false;
+      if (session.titleSource === 'ai' && session.title === normalized) return false;
+      session.title = normalized;
+      session.titleSource = 'ai';
+      session.updatedAt = this.now();
+      return true;
+    }));
+  }
+
   deleteSession(sessionId: string): Promise<void> {
     return this.enqueue(() => this.mutate(workspace => {
       const index = workspace.sessions.findIndex(session => session.id === sessionId);

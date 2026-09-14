@@ -87,6 +87,7 @@ infrastructure  ->  domain ports
 10. **图标限制**：活动栏可用自定义 SVG；**editor/title 与状态栏只接受 codicon / 图标字体**（`contributes.icons` 需 `fontPath + fontCharacter`，id 必须形如 `component-iconname`）。
 11. **不要自动恢复长进程**：会话中断只能记录 + 让用户 Resume（软恢复：启动时提示"继续"并重发最后一条消息）。
 12. **不要默认读 `.gitignore` 内容**（用户显式引用除外）。
+13. **会话自动命名**：新会话标题是占位 `New Chat`（`titleSource: 'fallback'`）。首次拿到模型回复后，`ChatService.applyAutoTitle()` 用**同一条 provider 通道**发一次 **bare 请求**（system 指令 + 第一轮问答，无工具、无历史，`temperature:0 / maxTokens:32`，流式结果丢弃不显示），再经 `SessionService.setAiTitle()` 落库为 `titleSource: 'ai'`。三个不可破坏的约束：(a) **用户改过的名字永远优先**（`manual` 直接拒绝覆盖——用户在请求飞行途中重命名是真实竞态）；(b) **只命名一次**（`fallback` 之外都不再触发）；(c) **绝不因命名失败而让成功的 run 变成失败**（全程 try/catch，失败就保留占位名）。开关 `yisiAI.sessionAutoTitle`（默认 true，每会话多一次请求）。注意 `ChatService` 的 `autoTitle` 策略**缺席即视为关闭**，所以既有调用点/测试不受影响，接线只在 `index.ts` 组合根。
 
 ---
 

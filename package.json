@@ -152,6 +152,12 @@
           "scope": "window",
           "description": "Extra phrases (spacing and case ignored) that should also be treated as identity questions and answered through the bare chat path."
         },
+        "yisiAI.sessionAutoTitle": {
+          "type": "boolean",
+          "default": true,
+          "scope": "window",
+          "description": "Name a session from its first exchange using the selected model, so the history list reads as tasks instead of \"New Chat\". Costs one extra provider request per session. A title you set yourself is never overwritten."
+        },
         "yisiAI.pdfVisionMaxPages": {
           "type": "number",
           "default": 0,

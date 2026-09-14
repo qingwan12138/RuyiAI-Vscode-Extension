@@ -5,6 +5,12 @@ import { ConversationItem, FileContextReference, PermissionMode, parseContextRef
 import { AttachmentContext, AttachmentImagePayload } from '../../context/attachment/attachmentTypes';
 import { AttachmentRehydrator } from '../attachment/attachmentService';
 import { IdentityQuestionPolicy, isIdentityQuestion } from './identityQuestion';
+import {
+  SessionAutoTitlePolicy,
+  buildSessionTitleMessages,
+  parseSessionTitle,
+  shouldGenerateSessionTitle
+} from './sessionTitle';
 import { assembleAttachmentContexts, computeAttachmentBudget } from './attachmentPrompt';
 import { AgentToolEvent } from '../agent/readOnlyAgentLoop';
 import { compactHistory, CompactableMessage } from '../context/contextCompactor';
@@ -33,6 +39,15 @@ export class ChatRunInProgressError extends Error {
   }
 }
 
+export interface ChatServiceOptions {
+  /**
+   * Session auto-titling policy. Absent means "do not auto-title": the title
+   * costs one extra provider request per session, so the composition root has to
+   * opt in explicitly (this keeps every existing call site unchanged).
+   */
+  autoTitle?: () => SessionAutoTitlePolicy;
+}
+
 export class ChatService {
   private running = false;
 
@@ -43,7 +58,8 @@ export class ChatService {
     private readonly identityQuestions?: () => IdentityQuestionPolicy,
     private readonly rehydrator?: AttachmentRehydrator,
     private readonly sessionRunner?: (session: { sessionId: string; mode: PermissionMode }) => Promise<AgentConversationRunner | undefined>,
-    private readonly historyBudgetRatio = 0.6
+    private readonly historyBudgetRatio = 0.6,
+    private readonly options: ChatServiceOptions = {}
   ) {}
 
   async send(
@@ -134,12 +150,53 @@ export class ChatService {
       if (!response) throw new Error('Provider returned an empty response.');
       await this.sessions.appendAssistantMessage(response, 'provider');
       await this.sessions.setStatus('idle');
+      // Only after the session is idle and the reply is persisted, so a titling
+      // problem can never affect the run the user asked for.
+      await this.applyAutoTitle(provider, selected.modelId, active.id, signal);
     } catch (error: unknown) {
       const aborted = signal.aborted || (error instanceof Error && error.name === 'AbortError');
       await this.sessions.setStatus(aborted ? 'interrupted' : 'blocked').catch(() => undefined);
       throw error;
     } finally {
       this.running = false;
+    }
+  }
+
+  /**
+   * Names a session from its first exchange, so the history list reads as tasks
+   * instead of a column of "New Chat". Best-effort by design: a title is a
+   * convenience, so a provider failure, an abort, or a model that answers with
+   * prose leaves the placeholder in place and never turns a run that succeeded
+   * into a failed one.
+   *
+   * The request is bare — a system instruction plus the first exchange, no tools
+   * and no replayed history — and its stream is discarded rather than shown.
+   */
+  private async applyAutoTitle(
+    provider: LLMProvider,
+    model: string,
+    sessionId: string,
+    signal: AbortSignal
+  ): Promise<void> {
+    if (!this.options.autoTitle?.().enabled) return;
+    try {
+      const session = this.sessions.getActiveSession();
+      // The user can only switch sessions while idle, but check anyway rather
+      // than naming a session that is no longer the one being talked about.
+      if (session.id !== sessionId) return;
+      if (!shouldGenerateSessionTitle(session)) return;
+      const raw = await streamChatText(
+        provider,
+        model,
+        buildSessionTitleMessages(session.items),
+        { temperature: 0, maxTokens: 32 },
+        () => undefined,
+        signal
+      );
+      const title = parseSessionTitle(raw);
+      if (title) await this.sessions.setAiTitle(sessionId, title);
+    } catch {
+      // Best effort: keep the placeholder title.
     }
   }
 
