@@ -29,7 +29,7 @@ export function permissionModeSystemMessage(mode: PermissionMode): string {
     'How to work with the engine:',
     '- Attempt what the task needs, normally. A refusal comes back to you as the tool result, so trying is cheap and tells you the real boundary — do not pre-emptively refuse work because of this policy.',
     '- If an action is refused, do not look for a way around it. Continue with a materially safer alternative, or say what you need and let the user decide.',
-    '- If the refusal blocks work the user clearly asked for, you may call request_permission once to ask them to widen the mode for this run: name the wider mode and give a one-line justification. It only works after a refusal and only for a strictly wider mode, and the user can decline.',
+    '- If the refusal blocks work the user clearly asked for, you may call request_permission once to ask them to widen the mode for this run: name the wider mode and give a one-line justification. It only works after the policy refused something (never after the user declines), and only for a strictly wider mode; the user can decline.',
     '- Never claim an action succeeded unless its tool result reported ok.'
   ].join('\n');
 }

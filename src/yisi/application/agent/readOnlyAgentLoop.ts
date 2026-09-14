@@ -128,6 +128,11 @@ export class AgentToolLoop {
     // looping until the round budget runs out.
     let consecutiveDenials = 0;
     let totalDenials = 0;
+    // A permission change may only follow a refusal by the *policy*. A user who
+    // declined does not want a wider mode; asking anyway is nagging, and the
+    // reference designs escalate out of a confinement/policy block, not out of a
+    // human "no" (docs/04).
+    let policyDenials = 0;
     // One escalation request per run, matching the reference designs.
     let escalationRequested = false;
 
@@ -200,6 +205,7 @@ export class AgentToolLoop {
         const refuse = (kind: DenialKind, rawReason: string): AgentLoopResult | undefined => {
           consecutiveDenials += 1;
           totalDenials += 1;
+          if (kind === 'policy') policyDenials += 1;
           const reason = bounded(rawReason, this.options.maxErrorCharacters);
           executions.push({ callId: call.id, toolId: call.name, outcome: 'failed', truncated: false });
           onToolEvent?.({
@@ -252,10 +258,12 @@ export class AgentToolLoop {
             if (terminal) return terminal;
             continue;
           }
-          if (totalDenials === 0) {
+          if (policyDenials === 0) {
             const terminal = refuse(
               'policy',
-              'A permission change must follow a refusal, and nothing has been refused in this run yet.'
+              totalDenials === 0
+                ? 'A permission change must follow a refusal by the policy, and nothing has been refused in this run yet.'
+                : 'A permission change may only follow a refusal by the policy. The user already declined, so do not ask to widen the mode — ask what they would prefer instead.'
             );
             if (terminal) return terminal;
             continue;

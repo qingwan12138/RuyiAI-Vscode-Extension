@@ -32,7 +32,7 @@ Permission mode 不是 sandbox。Sandbox/ExecutionWorkspace 决定技术上能�
 
 被拒绝之后，模型可以调用 **`request_permission`** 请求把**本次运行**的模式放宽。四个条件全部满足才会问到用户，任一不满足即作为 `policy` 拒绝回给模型：
 
-1. **有据可依**：本次运行已经发生过至少一次拒绝（不允许空口升级）；
+1. **只能跟在策略拒绝之后**：本次运行必须已经发生过**由引擎做出的**拒绝（`reason: 'policy'`）。**跟在用户主动拒绝（`reason: 'user'`）之后的升级请求一律拒绝**，并明确告诉模型"用户已拒绝，不要再要求放宽"——参考实现里的升级针对的是**约束/沙箱的拦截**（DSH："a confined op that the **runner** actually denies"），而不是人的拒绝；CC 是把"切到 auto"作为审批提示**内的一个选项**交给用户，而不是让模型在被拒后追问。不做这条收紧就变成了纠缠；
 2. **严格更宽**：目标模式在 `domain/permissionMode.ts` 的顺序中必须严格靠后（`plan < manual < acceptEdits < auto < fullAccess`）；`acceptEdits` 与 `auto` 相邻是因为引擎目前对二者的判定完全相同；
 3. **每次运行仅一次**（对齐 DSH 的"仅一次"与 Codex 的单次请求）；
 4. **有人来批**：走**已有的审批卡片**（与特权动作同一通道）；无审批通道时 `unavailable` 失败关闭。

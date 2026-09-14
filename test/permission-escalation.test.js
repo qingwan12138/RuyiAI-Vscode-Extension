@@ -179,19 +179,22 @@ test('an escalation that is not strictly wider is refused', async () => {
   const executed = [];
   const requests = [];
   const provider = scriptedProvider([
-    call('c1', 'run_command', { executable: 'ctest' }),
-    call('c2', REQUEST_PERMISSION_TOOL_ID, { mode: 'manual', justification: 'let me run tests' }),
+    call('c1', 'replace_text', { path: 'src/a.ts' }),
+    call('c2', REQUEST_PERMISSION_TOOL_ID, { mode: 'manual', justification: 'let me try again' }),
     text('understood')
   ], requests);
   const loop = new AgentToolLoop(
     provider,
-    new ToolRegistry([commandTool(executed), createRequestPermissionTool()]),
-    new PermissionEngine(),
+    new ToolRegistry([writeTool(executed), createRequestPermissionTool()]),
+    // A policy that refuses in acceptEdits gives us the policy refusal an
+    // escalation needs, while leaving "manual" narrower than the current mode.
+    {
+      evaluate: mode => (mode === 'acceptEdits'
+        ? { outcome: 'deny', allowed: false, needsConfirmation: false, reason: 'blocked by the policy under test' }
+        : { outcome: 'allow', allowed: true, needsConfirmation: false, reason: 'allowed under test' })
+    },
     {},
-    // The command is declined in acceptEdits mode, which gives us the prior
-    // refusal the escalation needs. The escalation itself never reaches the
-    // approval card: it is refused before asking.
-    { confirm: async () => false }
+    { confirm: async () => { throw new Error('an escalation that is not wider must never reach the user'); } }
   );
   const signal = new AbortController().signal;
 
@@ -202,6 +205,35 @@ test('an escalation that is not strictly wider is refused', async () => {
   const denial = JSON.parse(requests[2].request.messages.at(-1).content);
   assert.equal(denial.reason, 'policy');
   assert.match(denial.error, /not strictly wider/);
+});
+
+test('an escalation after a user decline is refused instead of nagging', async () => {
+  const executed = [];
+  const requests = [];
+  let asks = 0;
+  const provider = scriptedProvider([
+    call('c1', 'run_command', { executable: 'ctest' }),
+    call('c2', REQUEST_PERMISSION_TOOL_ID, { mode: 'fullAccess', justification: 'please let me run the tests' }),
+    text('understood')
+  ], requests);
+  const loop = new AgentToolLoop(
+    provider,
+    new ToolRegistry([commandTool(executed), createRequestPermissionTool()]),
+    new PermissionEngine(),
+    {},
+    { confirm: async () => { asks += 1; return false; } }
+  );
+  const signal = new AbortController().signal;
+
+  const result = await loop.run(request, context(signal), 'acceptEdits', () => undefined, signal);
+
+  assert.equal(result.status, 'completed');
+  // Only the command was ever asked about. The user said no, so the run does not
+  // come back asking to be allowed a wider mode.
+  assert.equal(asks, 1);
+  const denial = JSON.parse(requests[2].request.messages.at(-1).content);
+  assert.equal(denial.reason, 'policy');
+  assert.match(denial.error, /user already declined/);
 });
 
 test('a declined escalation leaves the mode alone and is not asked twice', async () => {
