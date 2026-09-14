@@ -80,7 +80,10 @@ export class ModelControlService {
         id: configuration.id,
         name: configuration.name,
         configured: await this.isConfigured(configuration),
-        models: configuration.models.map(modelId => {
+        // offeredModels, not configuration.models: the known roster is merged on
+        // read so a configuration saved before the retired ids were offered still
+        // exposes them (the stored list is never rewritten).
+        models: this.configurations.offeredModels(configuration).map(modelId => {
           const entry = known.get(modelId);
           const legacyOf = entry?.status === 'legacy' ? entry.servedBy : undefined;
           return {
@@ -95,7 +98,7 @@ export class ModelControlService {
     }
 
     const provider = this.configurations.get(model.providerId);
-    const available = !!provider && provider.models.includes(model.modelId);
+    const available = !!provider && this.configurations.offeredModels(provider).includes(model.modelId);
     const capabilities = provider ? capabilitiesOf(provider, model.modelId) : EMPTY_CAPABILITIES;
     const displayName = !model.providerId || !model.modelId
       ? '选择模型'

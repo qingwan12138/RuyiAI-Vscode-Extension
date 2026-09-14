@@ -6,6 +6,7 @@ import {
   parseProviderConfigurationDocument
 } from '../../domain/providerConfiguration';
 import { SessionModelSelection } from '../../domain/session';
+import { mergeDiscoveredModels } from '../../domain/providerDefaults';
 import { ProviderConfigurationRepository } from './providerConfigurationRepository';
 import { SecretStore } from './secretStore';
 
@@ -133,9 +134,27 @@ export class ProviderConfigurationService {
     return this.updateProvider(providerId, { models: normalized });
   }
 
+  /**
+   * The model ids this provider offers: its stored list plus the roster Yisi
+   * knows for its kind (see domain/providerDefaults).
+   *
+   * The stored list is deliberately not rewritten. Discovery only ever reports
+   * *current* models, so a configuration saved before the retired DeepSeek ids
+   * were offered keeps a two-entry list; merging on read is what lets the picker
+   * show the retired ids that the API still accepts (and that DeepSeek's own
+   * harness lists) without mutating the user's saved configuration.
+   *
+   * Every consumer that turns stored models into something the user can pick or
+   * select must go through here — `isAvailable` does, so a retired id can also be
+   * *chosen*, not merely displayed.
+   */
+  offeredModels(configuration: ProviderConfiguration): string[] {
+    return mergeDiscoveredModels(configuration.kind, configuration.models);
+  }
+
   private isAvailable(selection: SessionModelSelection): boolean {
     const provider = this.document.configurations.find(item => item.id === selection.providerId);
-    return provider?.models.includes(selection.modelId) ?? false;
+    return provider ? this.offeredModels(provider).includes(selection.modelId) : false;
   }
 }
 

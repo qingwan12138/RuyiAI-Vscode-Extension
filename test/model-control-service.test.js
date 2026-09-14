@@ -251,3 +251,40 @@ test('retired DeepSeek ids are listed and marked with the model that serves them
   assert.equal(models[2].legacyOf, 'deepseek-flash');
   assert.equal(models[3].legacyOf, 'deepseek-flash');
 });
+
+test('a stored two-model DeepSeek config still offers the retired ids', async () => {
+  // Reproduces the reported picker: the provider was saved back when discovery
+  // reported only the two current models. The retired ids must appear anyway,
+  // and choosing one must count as available, without rewriting what is stored.
+  const { configurations, sessions, service } = await createHarness();
+  const created = await configurations.create(
+    providerInput({
+      kind: 'deepseek',
+      name: 'DeepSeek',
+      models: ['deepseek-flash', 'deepseek-v4-pro'],
+      credential: { source: 'environment', variableName: 'DS_KEY' }
+    }),
+    undefined
+  );
+
+  const state = await service.getState();
+
+  assert.deepEqual(state.providers[0].models.map(model => model.id), [
+    'deepseek-flash',
+    'deepseek-v4-pro',
+    'deepseek-v4-flash',
+    'deepseek-v4-flash-vision-exp'
+  ]);
+  assert.equal(state.providers[0].models[2].legacyOf, 'deepseek-flash');
+  assert.equal(state.providers[0].models[3].legacyOf, 'deepseek-flash');
+
+  // The roster is merged on read: the saved configuration itself is untouched,
+  // so the extension never silently rewrites a user's provider entry.
+  assert.deepEqual(configurations.get(created.id).models, ['deepseek-flash', 'deepseek-v4-pro']);
+
+  // A retired id is genuinely selectable, not just displayed.
+  await sessions.setModelSelection({ providerId: created.id, modelId: 'deepseek-v4-flash' });
+  const after = await service.getState();
+  assert.equal(after.current.modelId, 'deepseek-v4-flash');
+  assert.equal(after.current.available, true);
+});
