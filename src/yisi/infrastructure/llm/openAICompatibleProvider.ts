@@ -174,6 +174,14 @@ export class OpenAICompatibleProvider implements LLMProvider {
       // stream the text, and accumulate the tool fragments so the agent loop
       // attaches the text to the assistant message alongside the calls instead
       // of rejecting the whole round.
+      // Thinking-mode models (DeepSeek's current lineup among them) stream the
+      // reasoning on `reasoning_content` while `content` stays empty. Forward it
+      // as its own event so the UI can show it as a trace; it deliberately does
+      // NOT count as `emitted`, so a round that produced only reasoning is still
+      // treated as an empty response.
+      if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
+        yield { type: 'reasoningDelta', text: delta.reasoning_content };
+      }
       if (typeof delta.content === 'string' && delta.content) {
         emitted = true;
         yield { type: 'textDelta', text: delta.content };

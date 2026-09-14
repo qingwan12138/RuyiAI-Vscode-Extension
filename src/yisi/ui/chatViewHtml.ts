@@ -465,10 +465,33 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
       font-family: var(--vscode-editor-font-family, monospace);
       font-size: 11px;
     }
+    /* Steps are collapsible: the summary is the one-line row, the body holds the
+       input and the result detail. Progressive disclosure, per docs/19. */
+    .message.tool > summary,
+    .message.reasoning > summary {
+      cursor: pointer;
+      user-select: none;
+      list-style: none;
+    }
+    .message.tool > summary::-webkit-details-marker,
+    .message.reasoning > summary::-webkit-details-marker { display: none; }
+    .message.tool > summary::before,
+    .message.reasoning > summary::before {
+      content: '▸';
+      display: inline-block;
+      width: 10px;
+      color: var(--yisi-muted);
+    }
+    .message.tool[open] > summary::before,
+    .message.reasoning[open] > summary::before { content: '▾'; }
     .tool-header {
       font-weight: 600;
       color: var(--vscode-descriptionForeground);
-      margin-bottom: 4px;
+    }
+    .message.tool[open] > summary.tool-header { margin-bottom: 4px; }
+    .tool-body {
+      padding-left: 10px;
+      border-left: 1px solid var(--yisi-border);
     }
     .tool-input {
       color: var(--yisi-muted);
@@ -481,6 +504,28 @@ export function createChatViewHtml(webview: vscode.Webview, extensionUri: vscode
     .tool-result.pending { color: var(--yisi-muted); }
     .tool-result.ok { color: var(--vscode-gitDecoration-addedResourceForeground); }
     .tool-result.fail { color: var(--vscode-gitDecoration-deletedResourceForeground); }
+
+    /* The model's thinking trace: UI-only, collapsible, collapsed once the run
+       finishes so it never crowds the answer. */
+    .message.reasoning {
+      margin: 0 0 10px 22px;
+      border: 1px dashed var(--yisi-border);
+      background: transparent;
+      font-size: 11px;
+    }
+    .reasoning-header {
+      font-weight: 600;
+      color: var(--vscode-descriptionForeground);
+    }
+    .reasoning-body {
+      margin-top: 4px;
+      padding-left: 10px;
+      border-left: 1px solid var(--yisi-border);
+      color: var(--yisi-muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
 
     .message.streaming::after {
       content: '▋';
@@ -1134,6 +1179,10 @@ ${permissionClientScript()}
     let isRunning = false;
     let transientAssistant;
     let streamedText = '';
+    // The current run's thinking trace. Transient UI only: never persisted, never
+    // part of the conversation sent back to the model.
+    let reasoningNode;
+    let streamedReasoning = '';
     // The most recent tool bubble, awaiting its result (so the result event can
     // attach to it). Resets at every tool boundary / run reset.
     let lastToolNode = null;
@@ -1722,24 +1771,29 @@ ${permissionClientScript()}
       }
     }
     function appendToolNode(name, input) {
-      const node = document.createElement('div');
+      // A step is a collapsible row: the summary is the one-line label, the body
+      // carries the input and the result detail (progressive disclosure, docs/19).
+      const node = document.createElement('details');
       node.className = 'message tool';
-      const header = document.createElement('div');
+      const header = document.createElement('summary');
       header.className = 'tool-header';
       header.textContent = '🔧 ' + name;
-      node.appendChild(header);
+      const body = document.createElement('div');
+      body.className = 'tool-body';
       const preview = compactToolInput(input);
       if (preview) {
         const inputNode = document.createElement('div');
         inputNode.className = 'tool-input';
         inputNode.textContent = preview;
-        node.appendChild(inputNode);
+        body.appendChild(inputNode);
       }
       const result = document.createElement('div');
       result.className = 'tool-result pending';
       result.textContent = '…';
-      node.appendChild(result);
+      body.appendChild(result);
+      node.append(header, body);
       node.__result = result;
+      node.__label = '🔧 ' + name;
       conversation.appendChild(node);
       const content = document.getElementById('content');
       content.scrollTop = content.scrollHeight;
@@ -1748,10 +1802,48 @@ ${permissionClientScript()}
     function setToolResult(node, message) {
       const result = node.__result;
       if (!result) return;
-      result.className = 'tool-result ' + (message.outcome === 'succeeded' ? 'ok' : 'fail');
-      result.textContent = (message.outcome === 'succeeded' ? '✓ ' : '✕ ') + (message.summary || '');
+      const ok = message.outcome === 'succeeded';
+      result.className = 'tool-result ' + (ok ? 'ok' : 'fail');
+      // The collapsed row keeps a one-line verdict; the expanded body gets the
+      // fuller detail when the caller sent one (the inline summary stays bounded
+      // much smaller because it is also the row label's source).
+      result.textContent = (ok ? '✓ ' : '✕ ') + (message.detail || message.summary || '');
+      const header = node.querySelector('summary.tool-header');
+      if (header) header.textContent = node.__label + (ok ? ' · ✓' : ' · ✕');
       const content = document.getElementById('content');
       content.scrollTop = content.scrollHeight;
+    }
+
+    // The thinking trace lives above the answer it produced, streaming open while
+    // it arrives and collapsing when the run ends.
+    function appendReasoningNode() {
+      const node = document.createElement('details');
+      node.className = 'message reasoning';
+      node.open = true;
+      const header = document.createElement('summary');
+      header.className = 'reasoning-header';
+      header.textContent = '思考';
+      const body = document.createElement('div');
+      body.className = 'reasoning-body';
+      node.append(header, body);
+      node.__body = body;
+      node.__header = header;
+      if (transientAssistant && transientAssistant.parentNode === conversation) {
+        conversation.insertBefore(node, transientAssistant);
+      } else {
+        conversation.appendChild(node);
+      }
+      return node;
+    }
+    function finalizeReasoning() {
+      if (!reasoningNode) return;
+      const chars = streamedReasoning.trim().length;
+      if (reasoningNode.__header) {
+        reasoningNode.__header.textContent = chars > 0 ? '思考 · ' + chars + ' 字' : '思考';
+      }
+      reasoningNode.open = false;
+      reasoningNode = undefined;
+      streamedReasoning = '';
     }
 
     function submit() {
@@ -1877,11 +1969,21 @@ ${permissionClientScript()}
       if (message.type === 'assistantStreamStarted') {
         isRunning = true;
         streamedText = '';
+        streamedReasoning = '';
+        reasoningNode = undefined;
         clearApprovals();
         lastToolNode = null;
         transientAssistant = appendMessage('Thinking…', 'assistant', true);
         status.textContent = 'Generating…';
         updateSendState();
+      }
+
+      if (message.type === 'assistantReasoningDelta') {
+        if (!reasoningNode) reasoningNode = appendReasoningNode();
+        streamedReasoning += typeof message.text === 'string' ? message.text : '';
+        if (reasoningNode.__body) reasoningNode.__body.textContent = streamedReasoning;
+        const content = document.getElementById('content');
+        content.scrollTop = content.scrollHeight;
       }
 
       if (message.type === 'contextState') {
@@ -1925,6 +2027,7 @@ ${permissionClientScript()}
       if (message.type === 'assistantStreamCompleted') {
         isRunning = false;
         clearApprovals();
+        finalizeReasoning();
         finalizeTextBubble();
         lastToolNode = null;
         status.textContent = '';
@@ -1938,6 +2041,7 @@ ${permissionClientScript()}
           : 'Session action failed.';
         // Finalize any partial stream, drop a bare "Thinking…" bubble, then
         // keep the failure visible as an error bubble (not just the status row).
+        finalizeReasoning();
         finalizeTextBubble();
         lastToolNode = null;
         appendErrorBubble(text);

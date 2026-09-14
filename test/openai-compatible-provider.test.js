@@ -28,6 +28,46 @@ async function collectEvents(iterable) {
   return events;
 }
 
+test('streams thinking-mode reasoning as its own event, ahead of the content', async () => {
+  const provider = new OpenAICompatibleProvider({
+    id: 'deepseek',
+    providerKind: 'deepseek',
+    baseUrl: 'https://api.deepseek.com',
+    fetchImpl: async () => sseResponse([
+      'data: {"choices":[{"delta":{"reasoning_content":"weigh "}}]}\n\n',
+      'data: {"choices":[{"delta":{"reasoning_content":"it"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"answer"}}]}\n\n',
+      'data: [DONE]\n\n'
+    ])
+  });
+
+  assert.deepEqual(await collectEvents(provider.streamAgent({ model: 'm', messages: [], tools: [] })), [
+    { type: 'reasoningDelta', text: 'weigh ' },
+    { type: 'reasoningDelta', text: 'it' },
+    { type: 'textDelta', text: 'answer' }
+  ]);
+});
+
+test('a round that produced only reasoning is still an empty response', async () => {
+  const provider = new OpenAICompatibleProvider({
+    id: 'deepseek',
+    providerKind: 'deepseek',
+    baseUrl: 'https://api.deepseek.com',
+    fetchImpl: async () => sseResponse([
+      'data: {"choices":[{"delta":{"reasoning_content":"thinking, but nothing usable"}}]}\n\n',
+      'data: [DONE]\n\n'
+    ])
+  });
+
+  // A thinking trace is not an answer: the agent loop needs text or a tool call,
+  // so the empty-response guard must keep firing rather than treating reasoning
+  // as output.
+  await assert.rejects(
+    () => collectEvents(provider.streamAgent({ model: 'm', messages: [], tools: [] })),
+    /empty response/i
+  );
+});
+
 test('discovers and normalizes model ids', async () => {
   const provider = new OpenAICompatibleProvider({
     id: 'local', baseUrl: 'http://127.0.0.1:8080/v1',

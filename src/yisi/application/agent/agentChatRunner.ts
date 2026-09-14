@@ -1,7 +1,7 @@
 import { PermissionMode } from '../../domain/session';
 import { AgentRequest, AgentStreamEvent } from '../../llm/types';
 import { PermissionEngine } from '../../permissions/permissionEngine';
-import { AgentLoopRequest, AgentToolEvent, AgentToolLoop, ToolConfirmationPort } from './readOnlyAgentLoop';
+import { AgentDeltaListener, AgentLoopRequest, AgentToolEvent, AgentToolLoop, ToolConfirmationPort } from './readOnlyAgentLoop';
 import { ToolRegistry } from './toolRegistry';
 
 export class AgentCapabilityError extends Error {
@@ -39,7 +39,7 @@ export class AgentChatRunner {
     provider: AgentProviderCandidate,
     request: AgentLoopRequest,
     session: AgentChatSessionContext,
-    onDelta: (text: string) => void,
+    onDelta: AgentDeltaListener,
     signal: AbortSignal,
     onToolEvent?: (event: AgentToolEvent) => void
   ): Promise<string> {

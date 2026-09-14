@@ -7,6 +7,9 @@ const redactor = createSecretRedactor();
 export type ChatRunEvent =
   | { type: 'assistantStreamStarted' }
   | { type: 'assistantStreamDelta'; text: string }
+  // The model's thinking trace. UI-only: it is never part of the conversation or
+  // the persisted session.
+  | { type: 'assistantReasoningDelta'; text: string }
   | { type: 'assistantStreamCompleted' }
   | { type: 'runStopped' }
   | { type: 'sessionError'; message: string }
@@ -75,10 +78,15 @@ export class ChatRunCoordinator {
     try {
       await this.chat.send(
         text,
-        delta => {
+        (delta, kind) => {
           lastActivity = Date.now();
           stallNotified = false;
-          this.emit({ type: 'assistantStreamDelta', text: delta });
+          // A thinking trace still counts as activity for the stall watchdog, but
+          // it is emitted as its own event so the UI never mixes it into the
+          // assistant's answer text.
+          this.emit(kind === 'reasoning'
+            ? { type: 'assistantReasoningDelta', text: delta }
+            : { type: 'assistantStreamDelta', text: delta });
         },
         controller.signal,
         contexts,

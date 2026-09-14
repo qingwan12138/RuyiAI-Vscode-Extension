@@ -14,6 +14,7 @@ import {
 } from './sessionTitle';
 import { assembleAttachmentContexts, computeAttachmentBudget } from './attachmentPrompt';
 import { AgentToolEvent } from '../agent/readOnlyAgentLoop';
+import type { AgentDeltaListener } from '../agent/readOnlyAgentLoop';
 import { compactHistory, CompactableMessage } from '../context/contextCompactor';
 import { estimateTokens, CONTEXT_OVERHEAD_TOKENS } from '../context/contextUsage';
 
@@ -22,7 +23,7 @@ export interface AgentConversationRunner {
     provider: LLMProvider,
     request: { model: string; messages: AgentConversationMessage[] },
     session: { sessionId: string; mode: PermissionMode },
-    onDelta: (text: string) => void,
+    onDelta: AgentDeltaListener,
     signal: AbortSignal,
     onToolEvent?: (event: AgentToolEvent) => void
   ): Promise<string>;
@@ -65,7 +66,7 @@ export class ChatService {
 
   async send(
     text: string,
-    onDelta: (text: string) => void,
+    onDelta: AgentDeltaListener,
     signal: AbortSignal,
     contexts: ExplicitFileContext[] = [],
     onToolEvent?: (event: AgentToolEvent) => void

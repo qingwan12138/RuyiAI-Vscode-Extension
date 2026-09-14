@@ -29,7 +29,17 @@ export interface AgentToolExecutionEvidence {
 /** Live tool activity surfaced to the UI so the user sees what the agent did. */
 export type AgentToolEvent =
   | { type: 'toolCall'; id: string; name: string; input: Record<string, unknown> }
-  | { type: 'toolResult'; id: string; name: string; outcome: 'succeeded' | 'failed'; truncated: boolean; summary: string };
+  | {
+      type: 'toolResult';
+      id: string;
+      name: string;
+      outcome: 'succeeded' | 'failed';
+      truncated: boolean;
+      /** One-line label for the collapsed step row. */
+      summary: string;
+      /** Fuller result for the expanded step body; absent when there is nothing more to show. */
+      detail?: string;
+    };
 
 export interface AgentLoopResult {
   status: 'completed' | 'blocked';
@@ -37,6 +47,13 @@ export interface AgentLoopResult {
   executions: AgentToolExecutionEvidence[];
   reason?: string;
 }
+
+/**
+ * Receives streamed model output. `kind` separates the answer text from the
+ * model's thinking trace: the trace is a UI affordance only, never conversation
+ * content, and callers that do not care can ignore the second argument.
+ */
+export type AgentDeltaListener = (text: string, kind?: 'text' | 'reasoning') => void;
 
 export interface ReadOnlyAgentLoopOptions {
   maxRounds: number;
@@ -63,6 +80,12 @@ export interface ToolConfirmationRequest {
 export interface ToolConfirmationPort {
   confirm(request: ToolConfirmationRequest, signal: AbortSignal): Promise<boolean>;
 }
+
+/**
+ * How much of a tool result the expandable step body carries. The collapsed row
+ * uses a much smaller bound, so inspecting a step is opt-in.
+ */
+const DETAIL_CHARACTERS = 8_000;
 
 const DEFAULT_OPTIONS: ReadOnlyAgentLoopOptions = {
   maxRounds: 8,
@@ -105,7 +128,7 @@ export class AgentToolLoop {
     request: AgentLoopRequest,
     context: ToolExecutionContext,
     mode: PermissionMode,
-    onDelta: (text: string) => void,
+    onDelta: AgentDeltaListener,
     signal: AbortSignal,
     onToolEvent?: (event: AgentToolEvent) => void
   ): Promise<AgentLoopResult> {
@@ -156,6 +179,11 @@ export class AgentToolLoop {
         signal.throwIfAborted();
         if (event.type === 'textDelta') {
           if (event.text) textDeltas.push(event.text);
+        } else if (event.type === 'reasoningDelta') {
+          // Forwarded the moment it arrives, not buffered to the end of the round:
+          // a thinking trace is only useful while it is happening. It cannot affect
+          // the round's outcome, and it is never added to `messages`.
+          if (event.text) onDelta(event.text, 'reasoning');
         } else {
           if (toolCalls.length >= this.options.maxCallsPerRound) {
             return blocked('Provider exceeded the tool call limit.', executions);
@@ -215,7 +243,8 @@ export class AgentToolLoop {
             name: call.name,
             outcome: 'failed',
             truncated: false,
-            summary: bounded(reason, 600)
+            summary: bounded(reason, 600),
+            detail: bounded(reason, DETAIL_CHARACTERS)
           });
           toolMessages.push({
             role: 'tool',
@@ -404,7 +433,10 @@ export class AgentToolLoop {
           name: call.name,
           outcome,
           truncated,
-          summary: bounded(content, 600)
+          // `summary` labels the collapsed row; `detail` fills the expanded body,
+          // so a step can be inspected without flooding the default view.
+          summary: bounded(content, 600),
+          detail: bounded(content, DETAIL_CHARACTERS)
         });
         toolMessages.push({ role: 'tool', toolCallId: call.id, name: call.name, content });
       }

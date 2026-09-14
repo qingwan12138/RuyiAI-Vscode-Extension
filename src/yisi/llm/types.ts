@@ -73,6 +73,10 @@ export interface AgentRequest extends RequestSampling {
 
 export type AgentStreamEvent =
   | { type: 'textDelta'; text: string }
+  // Thinking-mode models stream their reasoning on a separate wire field. It is
+  // shown to the user as a collapsible trace: never persisted, never fed back to
+  // the model as conversation content.
+  | { type: 'reasoningDelta'; text: string }
   | { type: 'toolCall'; call: AgentToolCall };
 
 export interface LLMProvider {
