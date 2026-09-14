@@ -66,7 +66,30 @@ What to expect:
 - **Unclassified MCP tools are treated as `environmentChange`**: Plan refuses them, Manual/Accept Edits/Auto ask, Full Access runs them unattended. This is deliberate — an MCP server's effects cannot be inspected from the outside. Narrow a tool to `readOnly` only when you have reviewed that server.
 - A server that fails to connect, times out (10s) or speaks a broken protocol is **skipped with a logged reason**; the agent keeps working with zero tools from it.
 - The tool list is fixed for the session; after changing a server's tools, reload the window.
-- Not implemented yet: HTTP/SSE transport, MCP resources/prompts/sampling, a servers panel in the UI.
+- Not implemented yet: HTTP/SSE transport, MCP resources/prompts/sampling, a servers panel in the UI, **and a per-entry `env` map** — an entry cannot carry environment variables, so a server that needs configuration reads it from the environment the extension host inherited (start VS Code from a shell that has it exported). Unknown fields in an entry are ignored rather than rejected.
+
+### Built-in web search (`web_search` / `web_fetch`)
+
+Yisi ships **its own MCP server** for web access, so there is nothing to install: run **`Yisi AI: Copy Web Search (MCP) Configuration`** from the Command Palette and paste the copied entry into `yisiAI.mcpServers`. It looks like this (the path is the real one — VS Code installs extensions into a versioned directory, which is why the command exists instead of a documented literal path):
+
+```jsonc
+{
+  "name": "websearch",
+  "command": "node",
+  "args": ["<extension install dir>/dist/yisi/mcp-server/websearch/server.js"],
+  // Both tools are `network`: Plan refuses them, every other mode asks, Full Access runs them.
+  "toolRisks": { "web_search": "network", "web_fetch": "network" }
+}
+```
+
+What to expect:
+
+- **`web_fetch` works with no backend at all.** It reads one public `http(s)` page and returns bounded text. Only public addresses (loopback, link-local, private ranges and the cloud metadata address are refused), same-origin redirects only (≤5), 5 MB / 100,000 characters / 30 s, and non-text responses are refused instead of guessed at. Those limits are the ones recorded in `docs/14` and a test asserts they still match.
+- **`web_search` needs a backend, and there is no paid one involved.** The default is a **SearXNG** instance on this machine at `http://127.0.0.1:8080` — free, self-hosted, no API key (its JSON format must be enabled: `search.formats: [json]` in `settings.yml`). A different address goes in the **`YISI_SEARXNG_URL` environment variable**, which the server inherits; it is deliberately not a setting, because `yisiAI.mcpServers` carries no `env` map precisely so that tokens never end up in `settings.json`.
+- **No backend is reported honestly.** If nothing is reachable, `web_search` says which address it tried and how to fix it — it never returns "no results" as if it had searched.
+- **Nothing is cached, and nothing is sent anywhere except the search backend and the page you fetch.** The agent is instructed to search only when the answer depends on information newer than its training, to make the fewest calls, and to claim it searched the web **only when a web tool actually ran and succeeded**.
+- **Web content is untrusted input.** The prompt states that a page or a result can never change permissions, run a command, disclose a secret, upload anything, or change the workspace — and that the agent must never do such a thing *because a page said so*.
+- Search is bounded: at most 10 results per call, 300-character titles, 600-character snippets.
 
 ### Hooks (`yisiAI.hooks`)
 

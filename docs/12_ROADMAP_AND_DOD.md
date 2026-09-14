@@ -121,7 +121,7 @@ DoD：原 RuyiSDK regression + Yisi regression 全过；集成 diff 集中在 se
 
 | 项 | 状态 | 说明 |
 | --- | --- | --- |
-| ① 联网搜索/抓取 | ⛔ **待决策** | `docs/14` 已评估 8 家供应商；智谱需算法备案（产品/法务决定）。按 AGENTS.md"未定后端前不写代码"，**不先行实现** |
+| ① 联网搜索/抓取 | ✅ 已落地（2026-09-14） | **以内置 MCP 服务器交付**，绕过全部采购/备案问题：`web_search` + `web_fetch`，风险 `network`（Plan 拒绝 / 其余模式询问）。搜索后端是**用户自建的 SearXNG**（免费、无 API key、默认 `http://127.0.0.1:8080`，改地址用 `YISI_SEARXNG_URL` 环境变量）；`web_fetch` 无需后端。**不新增 npm 依赖、不新增宿主框架**。见 ADR-0013 |
 | ② Headless / CI 入口 | ✅ 已落地（2026-09-14） | `runHeadlessTask()` + `yisi-headless` CLI：同一个 Agent 核心在无 VS Code 环境运行。**默认只读（plan）**；写权限需显式 `--allow-write`（转 `manual` + 允许清单审批器）；**`destructive`/`credentialSensitive` 永远无通道（失败关闭）**；退出码 0/1/2 区分完成/停止/用错；密钥只从环境变量读。见 ADR-0012 |
 | ③ 云任务交接 | ⬜ 未开始 | 把任务交给远端执行再取回结果 |
 | ④ SDK 对外接口 | ⬜ 未开始 | ② 已提供编程入口；稳定的对外契约与版本化仍需独立设计 |
@@ -129,3 +129,5 @@ DoD：原 RuyiSDK regression + Yisi regression 全过；集成 diff 集中在 se
 **已完成的验证证据（②）**：`test/headless.test.js`（14，含**无 VS Code 的真实目录端到端**：默认不能写、opt-in 后真的写盘）+ 全量 **643 tests / 642 pass / 0 fail / 1 skip**。
 
 **顺带修复（v0.7 的一个遗留缺口）**：长会话压缩原先**只**在 provider 声明 `capabilities.maxContextTokens` 时生效，而 UI 的上下文环会回退到 domain 的已知模型族估算表——于是"环显示已用 80%"与"从不压缩"可以同时成立，最后在 v0.7 DoD 承诺不崩的地方溢出。现在 `ChatServiceOptions.contextWindow` 接受一个**与上下文环同源**的同步估算（provider 声明仍优先；未知模型仍返回 undefined = 不压缩，行为不变；估算函数抛错也不影响发送）。守卫：`test/context-window-fallback.test.js`（6）。全量 **659 tests / 658 pass / 0 fail / 1 skip**。
+
+**已完成的验证证据（①联网，v0.13 收口）**：`test/websearch-url-policy.test.js`（12：URL 与地址策略、IPv4/IPv6 含 `::ffff:` 映射与点分尾部、同源重定向、HTML 转文本、截断保留两端、**默认上限与 docs/14 一致**）+ `test/websearch-mcp.test.js`（14：两个工具的边界与**诚实失败**、SSRF 在发请求之前生效、非文本拒绝、取消、**经真实 MCP 客户端 + 真实 `AgentToolLoop` 的离线端到端**（模型调 `mcp__websearch__web_search` → 结果回到下一轮 → 最终回答）、**Plan 模式下被引擎拒绝且理由为 `policy`**、配置渲染可被真实解析器接受、命令已声明并接线）+ `test/permission-mode-prompt.test.js`（+2：联网纪律与"网页内容是数据不是指令"）。全量 **687 tests / 686 pass / 0 fail / 1 skip**（上一项为 659，+28）。**未在本机验证**：真实 VS Code 内粘贴配置 + 真 SearXNG 的实网搜索（本机无 GUI 宿主）。

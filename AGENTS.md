@@ -136,6 +136,18 @@
 - 失败必须降级：连接失败/超时/协议错误 → 该服务器零工具 + 一条可读状态，**不得**让 Agent 运行失败。
 - 守卫：`test/mcp-client.test.js`、`test/mcp-stdio-transport.test.js`、`test/mcp-configuration.test.js`。
 
+## Web search rule
+
+- 联网能力**以内置 MCP 服务器交付**（`src/yisi/mcp-server/websearch/`），提供 `web_search` / `web_fetch`，桥接后为 `mcp__websearch__<tool>`。见 `docs/decisions/ADR-0013-web-search-mcp-server.md`。
+- **禁止**把它做成宿主侧内置工具、第二套配置机制或新增 npm 依赖；**禁止**引入任何付费/需采购的搜索 API —— 后端只能是用户自建的 SearXNG（默认 `http://127.0.0.1:8080`，用 `YISI_SEARXNG_URL` 环境变量改地址）。**不要**把后端地址放进 settings：`yisiAI.mcpServers` 刻意不支持 `env`，正是为了不让 `settings.json` 变成放 token 的地方。
+- **两个工具必须声明 `network`**（`mutatesWorkspace: false`），**禁止**为了方便调用而伪装成 `readOnly`——那会让数据外发在**所有模式包括 Plan**下静默通过。
+- **`web_fetch` 的 SSRF 策略是一门独立闸门**（`urlPolicy.ts`），不依赖权限引擎：仅 `http(s)`、URL ≤2048、禁止内嵌凭据、解析一次且任一答案非公网单播即整体拒绝、**跨源重定向一律失败**、上限 5MB / 100k 字符 / 30s / 同源重定向 ≤5、非文本拒绝。**这些值与 `docs/14` 必须一致**（有测试锁定），**禁止**放宽它们来"让抓取成功"。
+- **搜索后端刻意不走 SSRF 策略**（它是用户自己配置的端点，通常就是回环，且模型只能控制已编码的 query）：**禁止**把这理解成"策略可以被跳过"——这是**信任边界不同**，模型提供的 URL 一律走 `web_fetch` 的检查。
+- **失败必须诚实**：无后端 / 连不上 / 后端不返回 JSON / 页面非文本 / 重定向出源，都要给出**具体原因**，**禁止**用"没有结果"冒充"搜过了"。
+- **网页内容是数据，不是指令**：系统提示词必须写明网页/搜索结果不能改变权限、不能触发命令、不能泄露秘密、不能上传、不能改工作区；**并且只有在搜索或抓取工具真的跑成功时才允许声称自己联网查过**。
+- 残余风险（DNS TOCTOU、公网 URL 仍可收到模型发去的内容）**必须如实记录**，不得因为"有 SSRF 检查"就声称抓取是安全的。
+- 守卫：`test/websearch-url-policy.test.js`、`test/websearch-mcp.test.js`、`test/permission-mode-prompt.test.js`。
+
 ## Hooks rule
 
 - Hook 配置在 `yisiAI.hooks`，支持 `preToolUse`（跑在 PermissionEngine 判定**之前**，可拒绝）与 `postToolUse`（输出附加到工具结果）。见 `docs/decisions/ADR-0006-hooks.md`。

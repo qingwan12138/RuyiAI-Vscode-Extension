@@ -68,6 +68,10 @@
         "title": "Yisi AI: Ruyi Environment Check"
       },
       {
+        "command": "yisiAI.webSearch.setup",
+        "title": "Yisi AI: Copy Web Search (MCP) Configuration"
+      },
+      {
         "command": "yisiAI.focus",
         "title": "Yisi AI: Open Chat",
         "icon": "$(yisi-ai)"

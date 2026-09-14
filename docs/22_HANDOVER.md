@@ -3,13 +3,13 @@
 - **交接文档最近更新**：2026-09-14（本仓当前 HEAD）
 - **项目**：Yisi AI — 面向 RuyiSDK / RISC-V 的 VS Code Coding Agent（闭源横向项目）
 - **当前分支**：`main`（与 `origin/main` 同步；`origin` = `https://github.com/qingwan12138/RuyiAI-Vscode-Extension.git`）
-- **验证状态**：`npm run compile` 通过；全量测试 **659 tests / 658 pass / 0 fail / 1 skip**（1 skip = Windows symlink 用例）
+- **验证状态**：`npm run compile` 通过；全量测试 **687 tests / 686 pass / 0 fail / 1 skip**（1 skip = Windows symlink 用例）
 - **构建产物**：`yisi-ai-dev-starter-0.1.7.vsix`（≈7.6 MB，含捆绑的运行时依赖）；`.vsix`/`dist`/`node_modules` 均被 gitignore，**不在版本库中**
 
 > **权威来源**（本文档只做索引与坑清单，不重复细节）：
 > - 计划与 DoD、逐里程碑实现状态：`docs/12_ROADMAP_AND_DOD.md`
 > - 兼容矩阵、测试矩阵、**当前测试数**：`docs/18_COMPATIBILITY_MATRIX.md`
-> - 架构决定（ADR-0001…0012）：`docs/decisions/`
+> - 架构决定（ADR-0001…0013）：`docs/decisions/`
 > - 强制规则（所有改动前必读）：`AGENTS.md`
 > - 合同对账与逐条状态流水（最详细）：`docs/22_CONTRACT_GAP_ANALYSIS.md`
 >
@@ -66,13 +66,14 @@ infrastructure  ->  domain ports
 | v0.10 CC-style sidebar | ✅ | 侧栏顶部不再有重复产品标题行 |
 | **v0.11 扩展层** | ✅ **四项全部落地** | ①项目指令文件（ADR-0004）②MCP 客户端（ADR-0005）③Hooks（ADR-0006）④Skills（ADR-0007） |
 | **v0.12 编排与体验层** | ✅ **四项全部落地** | ①Subagents（ADR-0008）②Checkpoints/rewind（ADR-0009）③并排 diff（ADR-0010）④Plan 文档化审阅（ADR-0011） |
-| **v0.13 重工程层** | ⚠️ 部分 | ②**Headless/CI 入口已落地**（ADR-0012）；①联网**待产品/法务决策**；③云任务、④SDK 对外契约未做 |
+| **v0.13 重工程层** | ✅ 三项落地 | ①**联网搜索/抓取已落地**（内置 MCP 服务器，ADR-0013；后端走用户自建 SearXNG，无采购、无备案问题）②**Headless/CI 入口已落地**（ADR-0012）；③云任务、④SDK 对外契约未做（按当前"就是一个 VS Code 扩展"的范围决定不做） |
 | v1.0 Delivery | ✅ 本机项 | VSIX 打包 + docs/20 + NOTICE + schema 冻结；**正式发布需目标环境** |
 
-**Agent 工具（25 个）**
+**Agent 工具（25 个内置 + 动态 MCP）**
 - 只读：`read_file` `list_directory` `search_text` `repo_index` `inspect_project` `list_symbols` `ruyi_check` `ruyi_workflow` `plan_todo` `session_history` `model_capabilities` `git_status` `git_worktree`(list) `skill`
 - 写/执行（权限门）：`replace_text` `create_text_file` `rewrite_text_file` `delete_file` `rename_file` `create_directory` `undo_last_edit`（workspaceWrite）、`run_command` `run_validations` `git_worktree`(remove)（processExec）、`ruyi_manage`（environmentChange）
 - loop 拦截（不是普通执行体）：`request_permission`（一次性升级 = Plan 的被审阅退出）、`task`（只读子代理）
+- **动态（MCP）**：`mcp__<server>__<tool>`。内置的联网服务器贡献两个 —— `mcp__websearch__web_search`、`mcp__websearch__web_fetch`，风险都是 **`network`**（Plan 拒绝 / 其余模式询问 / Full Access 放行）；未分类的外部工具默认 `environmentChange` + `mutatesWorkspace: true`。
 - 动态：`mcp__<server>__<tool>`（由 `yisiAI.mcpServers` 配置的服务器贡献）
 
 ---
@@ -131,8 +132,11 @@ node --test test/headless.test.js                      # CI：默认只读、opt
 
 | 项 | 阻塞原因 | 需要什么 |
 | --- | --- | --- |
-| **联网搜索/抓取（v0.13-①）** | **产品/法务决策未定**（`docs/14` 已评估 8 家供应商；智谱要求集成方承担算法备案/安全评估） | 由负责人**指定后端**后方可动代码 |
-| **云任务交接 / SDK 对外契约（v0.13-③④）** | 没有远端服务、也没有外部消费者；现在做等于凭空发明契约（违反 `AGENTS.md §5`） | 真实的后端/调用方 |
+| **联网搜索/抓取（v0.13-①）** | **代码已落地**（ADR-0013）；**实网未验证**：本机无 VS Code GUI 宿主，也没有跑起来的 SearXNG | 在真机粘贴配置 + 起一个 SearXNG，跑一次真实搜索 |
+| **MCP 客户端不发 `notifications/cancelled`** | 服务器侧已支持（`test/websearch-mcp.test.js` 有用例）；客户端只停止等待，上游请求在它自己的超时处才结束 | 客户端侧的一小步（传输层改动） |
+| **联网工具的 `web_fetch` 连接未固定** | 校验解析结果后仍按主机名请求，存在 DNS TOCTOU 窗口；钉住需要自定义 dispatcher | 明确接受该风险或引入 dispatcher |
+| **MCP 条目不支持 `env`** | 刻意不做（一旦支持，`settings.json` 就会变成放 token 的地方，违反 MCP rule） | 若确需，需先设计"只允许非机密值"的约束 |
+| **云任务交接 / SDK 对外契约（v0.13-③④）** | 按当前范围决定**不做**（这就是一个 VS Code 扩展）；没有远端服务也没有外部消费者，现在做等于凭空发明契约（违反 `AGENTS.md §5`） | 真实的后端/调用方 |
 | v0.8 合并进上游 + 原 RuyiSDK regression + one VSIX | 本机无上游仓库/凭据 | 上游仓库访问权 + 能开 PR 的环境 |
 | v0.6 真实 Ruyi/RISC-V 端到端 workflow | 开发机为 Windows、未装 ruyi | 一台 Linux + RuyiSDK 机器 |
 | v1.0 正式发布（LNX-001..020 smoke、最终 release） | 需目标 Linux/发布环境 | 目标环境 + 发布流程 |
@@ -148,10 +152,10 @@ node --test test/headless.test.js                      # CI：默认只读、opt
 
 ## 7. 下一步建议（优先级）
 
-1. **要决策**：联网走不走、走哪家（`docs/14` 有材料）。这是唯一能解开 v0.13-① 的东西。
+1. **要真机验收**：联网已可用（ADR-0013）——在真机粘贴 `yisiAI.mcpServers` 条目、起一个 SearXNG，确认 `web_search` 真的返回结果且审批卡片标注 `network`。这是唯一还没被验证过的一环。
 2. **要环境**：上游仓库 → v0.8；Linux + RuyiSDK → v0.6 与 LNX smoke。
-3. **要真实需求**：云任务/SDK 对外契约——等有后端或外部调用方再设计。
-4. 不阻塞的小事：VSIX bundle 化、检查点持久化、diff 内编辑提案、Ruyi 面板变更按钮。
+3. **要真实需求**：云任务/SDK 对外契约——按当前范围决定不做，等有后端或外部调用方再议。
+4. 不阻塞的小事：VSIX bundle 化、检查点持久化、diff 内编辑提案、Ruyi 面板变更按钮、MCP 客户端的取消通知。
 
 ---
 

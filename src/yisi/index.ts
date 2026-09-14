@@ -26,6 +26,7 @@ import { ProjectInstructionsService } from './application/context/projectInstruc
 import { buildProjectInstructionsMessage } from './application/agent/projectInstructions';
 import { McpServerService } from './application/mcp/mcpServerService';
 import { parseMcpServerConfigurations } from './application/mcp/mcpConfiguration';
+import { WEB_SEARCH_SERVER_SCRIPT, renderWebSearchConfig, webSearchSetupNotes } from './application/mcp/webSearchSetup';
 import { StdioMcpTransport } from './infrastructure/mcp/stdioMcpTransport';
 import { ConfiguredHook, parseHookConfigurations } from './application/hooks/hookConfiguration';
 import { HookService } from './application/hooks/hookService';
@@ -275,6 +276,9 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
       showCheckpoints(checkpointService, sessions, () => chatView.reloadFromSessions())
     ),
     vscode.commands.registerCommand('yisiAI.ruyi.check', () => chatView.runRuyiCheck()),
+    vscode.commands.registerCommand('yisiAI.webSearch.setup', () =>
+      copyWebSearchConfig(context.extensionUri)
+    ),
     vscode.commands.registerCommand('yisiAI.focus', () => revealYisiChat()),
     vscode.commands.registerCommand('yisiAI.resume', () => chatView.resumeUnfinished()),
     yisiStatus,
@@ -301,6 +305,26 @@ export async function registerYisiAI(context: vscode.ExtensionContext): Promise<
       if (action === '继续') void chatView.resumeUnfinished();
     });
   }, 1_200);
+}
+
+/**
+ * Hand the user the one line they cannot guess: the installed path of the bundled
+ * web-search server. Copying a ready-to-paste `yisiAI.mcpServers` entry is the whole
+ * feature — there is no second configuration mechanism for web search
+ * (docs/decisions/ADR-0013).
+ */
+async function copyWebSearchConfig(extensionUri: vscode.Uri): Promise<void> {
+  const scriptPath = vscode.Uri.joinPath(extensionUri, ...WEB_SEARCH_SERVER_SCRIPT).fsPath;
+  const config = renderWebSearchConfig(scriptPath);
+  await vscode.env.clipboard.writeText(config);
+  const action = await vscode.window.showInformationMessage(
+    'Yisi AI: 联网搜索配置已复制到剪贴板，粘贴进 settings.json 的 yisiAI.mcpServers 数组即可。' +
+      webSearchSetupNotes().join(' '),
+    '打开 settings.json'
+  );
+  if (action === '打开 settings.json') {
+    void vscode.commands.executeCommand('workbench.action.openSettingsJson');
+  }
 }
 
 /** Reveal the Yisi AI chat (status bar / editor-title entry points). */
