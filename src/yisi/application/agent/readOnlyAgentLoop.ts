@@ -8,6 +8,7 @@ import {
   RequestSampling
 } from '../../llm/types';
 import { PermissionEngine } from '../../permissions/permissionEngine';
+import { permissionModeSystemMessage } from './permissionModePrompt';
 import { ToolRegistry } from './toolRegistry';
 
 export interface AgentLoopRequest extends RequestSampling {
@@ -87,7 +88,14 @@ export class AgentToolLoop {
     signal: AbortSignal,
     onToolEvent?: (event: AgentToolEvent) => void
   ): Promise<AgentLoopResult> {
-    const messages = structuredClone(request.messages);
+    const messages: AgentConversationMessage[] = [
+      // Tell the model which permission mode it is in, once per run. Without
+      // this it never knew, so Plan mode produced "attempt the write, get
+      // refused, fail the whole run" instead of a proposal. The engine below
+      // remains the only authority; this text gates nothing.
+      { role: 'system', content: permissionModeSystemMessage(mode) },
+      ...structuredClone(request.messages)
+    ];
     const executions: AgentToolExecutionEvidence[] = [];
     let previousSignature: string | undefined;
 
