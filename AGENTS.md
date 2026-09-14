@@ -120,7 +120,8 @@
 
 ## Process-visibility rule
 
-- **思考（thinking）是 UI 轨迹，不是对话内容**：`reasoningDelta` 只用于显示——**绝不进入 `messages`、绝不持久化**（不属于 session items，状态刷新即消失）、**不回传宿主**。它出现在**它所产出回答的上方**，**默认折叠且保持折叠**；标签是**单行动态预览** `思考 · <思考首行>`（随 delta 实时更新、一行截断），点开才看全文。**不要**做成"流式自动展开"——用户明确要求它像一行状态那样克制。
+- **思考（thinking）是 UI 轨迹，不是对话内容**：`reasoningDelta` 只用于显示——**绝不进入 `messages`、绝不持久化**（不属于 session items，状态刷新即消失）、**不回传宿主**。它出现在**它所产出回答的上方**，**默认折叠且保持折叠**；标签是**单行动态预览** `思考 · <已用思考时间> · <思考首行>`（随 delta 实时更新、一行截断），点开才看全文。**不要**做成"流式自动展开"——用户明确要求它像一行状态那样克制。
+- **思考时间只计"真正在思考"的时间**：按「思考段（segment）」累计——首个 `reasoningDelta` 开段并启动 250ms ticker，第一个 `assistantStreamDelta` 或 `agentToolCall` 闭段，闭段即冻结数字。标签里时间放在首行预览**之前**，这样长预览被截断也不会把时间挤掉。**不得**把工具执行/回答生成的时间算进思考时间（agent run 是思考→工具→再思考，按整轮墙钟计会严重高估）。`renderActiveSession` 与每个 run 边界都必须走同一个 `finalizeReasoning()`，否则 ticker 会对着已被 `replaceChildren()` 分离的节点空转、后续 delta 写进看不见的 DOM。`setInterval` 只服务于"没有 delta 时也要看得出还活着"。
 - **provider 不得把 `reasoning_content` 计入 `emitted`**：否则"只思考、没有 content 也没有工具调用"的一轮会被当成有效输出（这正是自动命名那次 bug 的同源防线）。
 - **工具步骤必须可折叠**（`<details>`，渐进式披露，docs/19）：`summary` 是单行标签（`🔧 名称 · ✓/✕`），展开体放入参与结果；事件同时带 `summary`(600) 与 `detail`(8000)，让"展开看细节"是可选操作而非默认铺满。
-- 守卫：`test/agent-trace.test.js`。详见 `docs/06`。
+- 守卫：`test/agent-trace.test.js`；计时逻辑另有假时钟驱动用例在 `test/chat-view-source.test.js`（证明跨工具调用的两段思考会累加、且工具耗时不计入）。详见 `docs/06`。

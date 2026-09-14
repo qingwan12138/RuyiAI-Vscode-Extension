@@ -166,9 +166,16 @@ test('the thinking row stays collapsed and previews the thinking live', () => {
   assert.match(source, /node\.open = false/);
   assert.match(source, /function reasoningPreview\(\)/);
   assert.match(source, /function updateReasoningNode\(\)/);
-  // The label is "思考 · <preview>" and is rebuilt on every delta.
-  assert.match(source, /'思考 · ' \+ preview/);
+  // The label is "思考 · <elapsed> · <preview>" and is rebuilt on every delta.
+  assert.match(source, /const parts = \['思考'\]/);
+  assert.match(source, /parts\.join\(' · '\)/);
   assert.match(source, /updateReasoningNode\(\);/);
+  // Elapsed thinking time is shown on the row and kept moving while nothing
+  // streams, so a slow think does not read as a stall.
+  assert.match(source, /function formatDuration\(ms\)/);
+  assert.match(source, /function startReasoningTicker\(\)/);
+  assert.match(source, /clearInterval\(reasoningTimer\)/);
+  assert.match(source, /message\.type === 'assistantReasoningDelta'\)[\s\S]{0,400}?openReasoningSegment\(\)/);
   // The preview is the first non-empty line, whitespace-collapsed.
   assert.match(source, /split\(\/\\r\?\\n\/\)\.find\(line => line\.trim\(\)\.length > 0\)/);
   // One visual line: clipped with an ellipsis rather than wrapped.

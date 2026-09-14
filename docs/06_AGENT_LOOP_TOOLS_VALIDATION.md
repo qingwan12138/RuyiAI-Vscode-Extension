@@ -52,11 +52,14 @@ User Turn
 - **绝不进入 `messages`**——它不是对话内容，不会回灌给模型；
 - **绝不持久化**——不属于 session items，状态刷新即重建视图、轨迹自然消失（与"中断的部分文本只是临时 UI 状态"同一原则）；
 - **不改变循环判定**：provider 里 `reasoning_content` **不置 `emitted`**，所以"只思考、没有 content 也没有 tool call"的一轮仍然按空响应处理（有测试锁定）；
-- 出现位置在**它产出的回答之上**（`insertBefore(transientAssistant)`）；**默认折叠且保持折叠**，标签是**单行动态预览** `思考 · <思考首行>`（随 delta 实时更新、CSS `nowrap + ellipsis` 保证只有一行），点开才看全文。**不要**做成"流式自动展开"——用户明确要求它像一行状态那样克制，不挤占回答位置。
+- 出现位置在**它产出的回答之上**（`insertBefore(transientAssistant)`）；**默认折叠且保持折叠**，标签是**单行动态预览** `思考 · <已用思考时间> · <思考首行>`（随 delta 实时更新、CSS `nowrap + ellipsis` 保证只有一行），点开才看全文。**不要**做成"流式自动展开"——用户明确要求它像一行状态那样克制，不挤占回答位置。
+- **已用思考时间按「思考段」累计**（用户后续要求"在过程中显示当前思考多少时间"）：首个 `reasoningDelta` 开段并启动 250ms `setInterval`（ticker 的意义是"没有 delta 也要看得出还活着"，不是计时精度），第一个 `assistantStreamDelta` 或 `agentToolCall` 闭段；闭段时把该段时长累加并立即重写标签，于是**数字在思考停止的瞬间冻结**，行上留下"这次想了多久"。**只累加思考段**：agent run 是 思考→工具→再思考，若按整轮墙钟计时会把工具执行与回答生成都算成思考，严重高估。时间字段放在首行预览**之前**，长预览被 ellipsis 截断时不会把时间挤掉。
+  实现落在 webview 客户端脚本（纯 UI 状态，与"不持久化"一致）：`reasoningElapsed` / `reasoningStartedAt` / `reasoningTimer` + `currentReasoningMs()` / `formatDuration()` / `reasoningLabel()` / `openReasoningSegment()` / `closeReasoningSegment()`，并由 `finalizeReasoning()` 统一收口。`formatDuration` 在 60s 以下给 `3.4s`，以上给 `1m 05s`；`NaN`/负数退化为 `0.0s`，绝不在行上渲染 `NaN`。
+  **`renderActiveSession()` 必须调用 `finalizeReasoning()`**：它执行 `conversation.replaceChildren()` 抹掉那条临时轨迹，若不同时清掉 `reasoningTimer`，ticker 会对着已分离的节点继续空转，后续 delta 也会写进看不见的 DOM。每个 run 边界（`assistantStreamStarted`/`assistantStreamCompleted`/`sessionError`/`runStopped`）同样走这一个收口函数。
 
 **② 工具步骤可折叠（渐进式披露，docs/19）。** 每个步骤是 `<details>`：`summary` 是单行标签（`🔧 名称 · ✓/✕`），展开体是入参与结果。工具结果事件同时带两个有界字段：`summary`（600 字符，供折叠行）与 `detail`（8000 字符，供展开体）——"展开才看细节"因此是真正的可选操作，而不是把大结果默认铺满。
 
-守卫：`test/agent-trace.test.js`（loop 转发 kind 与顺序、思考不入 messages、`detail` 长于 `summary`、拒绝步骤也带 detail、coordinator 不把思考混进回答文本、webview 用 `<details>` 且不把推理回传宿主）。
+守卫：`test/agent-trace.test.js`（loop 转发 kind 与顺序、思考不入 messages、`detail` 长于 `summary`、拒绝步骤也带 detail、coordinator 不把思考混进回答文本、webview 用 `<details>` 且不把推理回传宿主）；思考计时由 `test/chat-view-source.test.js` 用**假时钟驱动真实函数**验证（两段思考跨一次 30s 工具调用后必须累加为 7.0s 而不是 37s，闭段后数字不再移动，`finalizeReasoning()` 后回到零且 ticker 全部被清理）。
 
 ## Core Tools（建议阶段）
 ReadFile, ListDirectory, SearchText, SearchFiles, GetSymbols, ReadDiagnostics, ApplyPatch/EditFile/CreateFile/DeleteFile, RunCommand, StartProcess/StopProcess, GitStatus/GitDiff, Ruyi* tools。

@@ -1191,6 +1191,12 @@ ${permissionClientScript()}
     // part of the conversation sent back to the model.
     let reasoningNode;
     let streamedReasoning = '';
+    // Thinking time is accumulated per segment (a run interleaves thinking with
+    // tool calls), plus the start of the segment currently open, plus the ticker
+    // that keeps the displayed number moving even while no delta arrives.
+    let reasoningElapsed = 0;
+    let reasoningStartedAt = 0;
+    let reasoningTimer;
     // The most recent tool bubble, awaiting its result (so the result event can
     // attach to it). Resets at every tool boundary / run reset.
     let lastToolNode = null;
@@ -1461,6 +1467,10 @@ ${permissionClientScript()}
       transientAssistant = undefined;
       streamedText = '';
       lastToolNode = null;
+      // A re-render wipes the transient thinking row, so its run-scoped state has
+      // to go with it — otherwise the ticker keeps running against a detached node
+      // and the next delta writes somewhere invisible.
+      finalizeReasoning();
 
       activeSession.items.forEach(item => {
         const node = appendMessage(
@@ -1830,13 +1840,62 @@ ${permissionClientScript()}
       const collapsed = firstLine.replace(/\s+/g, ' ').trim();
       return collapsed.length <= 200 ? collapsed : collapsed.slice(0, 199) + '…';
     }
+    // Elapsed thinking time, shown on the row so a long think reads as "still
+    // working" rather than as a stall. Only time between a thinking delta and the
+    // next non-thinking output counts: charging tool execution to "thinking" would
+    // overstate it, and the value freezes when the thinking stops.
+    function currentReasoningMs() {
+      const open = reasoningStartedAt > 0 ? Date.now() - reasoningStartedAt : 0;
+      return reasoningElapsed + open;
+    }
+    function formatDuration(ms) {
+      const safe = Number.isFinite(ms) && ms > 0 ? ms : 0;
+      const seconds = safe / 1000;
+      if (seconds < 60) return seconds.toFixed(1) + 's';
+      const minutes = Math.floor(seconds / 60);
+      const rest = Math.floor(seconds % 60);
+      return minutes + 'm ' + String(rest).padStart(2, '0') + 's';
+    }
+    function reasoningLabel() {
+      const parts = ['思考'];
+      if (reasoningElapsed > 0 || reasoningStartedAt > 0) {
+        parts.push(formatDuration(currentReasoningMs()));
+      }
+      const preview = reasoningPreview();
+      if (preview) parts.push(preview);
+      return parts.join(' · ');
+    }
     function updateReasoningNode() {
       if (!reasoningNode) return;
       if (reasoningNode.__body) reasoningNode.__body.textContent = streamedReasoning;
-      const preview = reasoningPreview();
-      if (reasoningNode.__header) {
-        reasoningNode.__header.textContent = preview ? '思考 · ' + preview : '思考';
+      if (reasoningNode.__header) reasoningNode.__header.textContent = reasoningLabel();
+    }
+    function startReasoningTicker() {
+      if (reasoningTimer) return;
+      // Independent of deltas: a model that thinks for twenty seconds without
+      // emitting anything must still look alive.
+      reasoningTimer = setInterval(() => {
+        if (reasoningNode) updateReasoningNode();
+      }, 250);
+    }
+    function openReasoningSegment() {
+      if (reasoningStartedAt > 0) return;
+      reasoningStartedAt = Date.now();
+      startReasoningTicker();
+    }
+    function closeReasoningSegment() {
+      const wasOpen = reasoningStartedAt > 0;
+      if (wasOpen) {
+        reasoningElapsed += Date.now() - reasoningStartedAt;
+        reasoningStartedAt = 0;
       }
+      if (reasoningTimer) {
+        clearInterval(reasoningTimer);
+        reasoningTimer = undefined;
+      }
+      // Rewrite once, so the row keeps the duration it actually took. Cheaper and
+      // idempotent on the many calls that arrive when no segment was open.
+      if (wasOpen && reasoningNode) updateReasoningNode();
     }
     function appendReasoningNode() {
       const node = document.createElement('details');
@@ -1860,11 +1919,15 @@ ${permissionClientScript()}
       return node;
     }
     function finalizeReasoning() {
-      if (!reasoningNode) return;
+      // Close the open segment first: that is what freezes the row's duration and
+      // stops the ticker, whether or not a row was ever created.
+      closeReasoningSegment();
       // The label already previews the trace, so nothing has to be rewritten here;
       // only the run-scoped bookkeeping is dropped.
       reasoningNode = undefined;
       streamedReasoning = '';
+      reasoningElapsed = 0;
+      reasoningStartedAt = 0;
     }
 
     function submit() {
@@ -1990,8 +2053,7 @@ ${permissionClientScript()}
       if (message.type === 'assistantStreamStarted') {
         isRunning = true;
         streamedText = '';
-        streamedReasoning = '';
-        reasoningNode = undefined;
+        finalizeReasoning();
         clearApprovals();
         lastToolNode = null;
         transientAssistant = appendMessage('Thinking…', 'assistant', true);
@@ -2001,6 +2063,9 @@ ${permissionClientScript()}
 
       if (message.type === 'assistantReasoningDelta') {
         if (!reasoningNode) reasoningNode = appendReasoningNode();
+        // Opens on the first delta of the run, and re-opens if the model goes back
+        // to thinking after a tool call.
+        openReasoningSegment();
         streamedReasoning += typeof message.text === 'string' ? message.text : '';
         updateReasoningNode();
         const content = document.getElementById('content');
@@ -2024,6 +2089,9 @@ ${permissionClientScript()}
       }
 
       if (message.type === 'assistantStreamDelta') {
+        // The first token of the answer ends the thinking segment, so the row stops
+        // counting here instead of absorbing the whole answer generation.
+        closeReasoningSegment();
         if (!transientAssistant) {
           transientAssistant = appendMessage(streamedText, 'assistant', true);
         }
@@ -2034,6 +2102,8 @@ ${permissionClientScript()}
       }
 
       if (message.type === 'agentToolCall') {
+        // Tool time is not thinking time: close the segment before the step bubble.
+        closeReasoningSegment();
         // Freeze the current text segment (the model's commentary), then show
         // the tool as its own step bubble.
         finalizeTextBubble();
@@ -2074,6 +2144,7 @@ ${permissionClientScript()}
       if (message.type === 'runStopped') {
         isRunning = false;
         clearApprovals();
+        finalizeReasoning();
         if (transientAssistant) transientAssistant.remove();
         transientAssistant = undefined;
         streamedText = '';

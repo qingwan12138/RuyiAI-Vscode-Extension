@@ -92,6 +92,8 @@ infrastructure  ->  domain ports
 12. **不要默认读 `.gitignore` 内容**（用户显式引用除外）。
 13. **会话自动命名**：新会话标题是占位 `New Chat`（`titleSource: 'fallback'`）。首次拿到模型回复后，`ChatService.applyAutoTitle()` 用**同一条 provider 通道**发一次 **bare 请求**（system 指令 + 第一轮问答，无工具、无历史，`temperature:0`，流式结果丢弃不显示），再经 `SessionService.setAiTitle()` 落库为 `titleSource: 'ai'`。四个不可破坏的约束：(a) **用户改过的名字永远优先**（`manual` 直接拒绝覆盖——用户在请求飞行途中重命名是真实竞态）；(b) **只命名一次**（`fallback` 之外都不再触发）；(c) **绝不因命名失败而让成功的 run 变成失败**（全程 try/catch，失败就保留占位名）；(d) **不要给这个请求加 `maxTokens` 上限**——DeepSeek 当前模型默认**思考模式**，思考以 `reasoning_content` 而非 `content` 返回，而 `openAICompatibleProvider.textDeltas()` 只读 `content`，于是 provider 会把"整条流没有 content"判为 `Provider returned an empty response.` 抛错；小上限会被思考吃光、标题永远出不来（这就是"交流完还是 New Chat"的根因）。长度由 system 指令约束，不由 token 上限约束。**失败必须留日志**（`[Yisi AI] Session auto-title failed: …` / `… produced no usable title`，经 secret redactor），不要恢复成裸 `catch {}`——静默失败会让这个问题无法诊断。开关 `yisiAI.sessionAutoTitle`（默认 true，每会话多一次请求）。注意 `ChatService` 的 `autoTitle` 策略**缺席即视为关闭**，所以既有调用点/测试不受影响，接线只在 `index.ts` 组合根。
 
+14. **过程可见性：思考行 + 计时**：`reasoningDelta` 是**纯 UI 轨迹**——绝不入 `messages`、绝不持久化、不回传宿主；provider **不得**把 `reasoning_content` 置 `emitted`（与第 13 条同源：否则"只思考"的一轮会被当成有效输出）。思考行是**默认折叠且保持折叠**的一行 `<details>`，标签 `思考 · <已用思考时间> · <思考首行>`（首行预览 ≤200 字符、CSS `nowrap + ellipsis`）。**计时只累加「思考段」**：首个 `reasoningDelta` 开段 + 250ms ticker，第一个 `assistantStreamDelta` 或 `agentToolCall` 闭段并冻结数字——按整轮墙钟计会把工具执行/回答生成算成思考（agent run 是思考→工具→再思考）。**`renderActiveSession()` 必须调 `finalizeReasoning()`**：它 `replaceChildren()` 抹掉轨迹，若不清 `reasoningTimer`，ticker 会对着已分离的节点空转、后续 delta 写进看不见的 DOM。守卫：`test/agent-trace.test.js` + `test/chat-view-source.test.js`（假时钟驱动，含"跨 30s 工具调用后应为 7.0s 而非 37s"）。
+
 ---
 
 ## 5. 本地构建 / 测试 / 打包

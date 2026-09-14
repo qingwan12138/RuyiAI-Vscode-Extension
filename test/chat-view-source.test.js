@@ -278,3 +278,131 @@ test('going home leaves a fresh session, so the title matches the main screen', 
   none.view.goHome();
   assert.deepEqual(none.posted, []);
 });
+
+test('the thinking row counts only the time actually spent thinking', () => {
+  // Reported: the row should say how long the current think has taken. The real
+  // logic is lifted out of the embedded script and driven with a fake clock,
+  // because the interesting part is the accounting, not the text.
+  let clock = 1_000_000;
+  const timers = { intervals: 0, cleared: 0, tick: undefined };
+  const build = new Function('setInterval', 'clearInterval', 'Date', `
+    let reasoningNode;
+    let streamedReasoning = '';
+    let reasoningElapsed = 0;
+    let reasoningStartedAt = 0;
+    let reasoningTimer;
+    ${functionBody(source, 'reasoningPreview')}
+    ${functionBody(source, 'currentReasoningMs')}
+    ${functionBody(source, 'formatDuration')}
+    ${functionBody(source, 'reasoningLabel')}
+    ${functionBody(source, 'updateReasoningNode')}
+    ${functionBody(source, 'startReasoningTicker')}
+    ${functionBody(source, 'openReasoningSegment')}
+    ${functionBody(source, 'closeReasoningSegment')}
+    ${functionBody(source, 'finalizeReasoning')}
+    function row() {
+      return { __header: { textContent: '' }, __body: { textContent: '' } };
+    }
+    return {
+      row,
+      // What the webview does when a reasoning delta arrives.
+      think(node, text) {
+        if (!reasoningNode) reasoningNode = node;
+        openReasoningSegment();
+        streamedReasoning += text;
+        updateReasoningNode();
+      },
+      // What it does when the answer or a tool call ends the thinking.
+      close() { closeReasoningSegment(); },
+      finalize() { finalizeReasoning(); },
+      hasTicker() { return Boolean(reasoningTimer); },
+      label() { return reasoningLabel(); },
+      format(ms) { return formatDuration(ms); },
+      header(node) { return node.__header.textContent; }
+    };
+  `);
+
+  const view = build(
+    (fn, ms) => {
+      timers.intervals += 1;
+      timers.tick = fn;
+      assert.equal(ms, 250, 'the ticker only exists to keep the number moving');
+      return timers.intervals;
+    },
+    () => { timers.cleared += 1; timers.tick = undefined; },
+    { now: () => clock }
+  );
+
+  // Nothing thought yet: the plain label, no invented duration.
+  assert.equal(view.label(), '思考');
+
+  // Thinking starts. The timer opens with the first delta and the row shows a
+  // live elapsed value alongside the preview.
+  const node = view.row();
+  view.think(node, 'weighing options\nmore');
+  assert.equal(view.hasTicker(), true, 'a live segment keeps a ticker running');
+  assert.equal(timers.intervals, 1, 'one ticker per segment');
+  clock += 3_400;
+  timers.tick();
+  assert.equal(view.header(node), '思考 · 3.4s · weighing options');
+
+  // The answer starts: the segment closes and the value freezes at what was
+  // actually spent thinking, instead of absorbing answer generation.
+  clock += 1_600;
+  view.close();
+  assert.equal(view.hasTicker(), false, 'no interval may survive its segment');
+  clock += 30_000;
+  assert.equal(view.header(node), '思考 · 5.0s · weighing options', 'the frozen value must not move');
+
+  // A tool call took 30s and the model thinks again: the second segment adds to
+  // the first, so tool time is not charged to thinking.
+  clock += 5_000;
+  view.think(node, ' checking the file');
+  assert.equal(view.hasTicker(), true, 'the second segment reopens the ticker');
+  clock += 2_000;
+  timers.tick();
+  assert.equal(view.header(node), '思考 · 7.0s · weighing options', 'only thinking time accumulates');
+
+  // The run ends: the ticker is gone, the row keeps its total, and the run-scoped
+  // state is reset so the next run starts from zero.
+  view.finalize();
+  assert.equal(view.hasTicker(), false);
+  assert.equal(timers.cleared, timers.intervals, 'every started ticker is cleared');
+  assert.equal(view.header(node), '思考 · 7.0s · weighing options');
+  assert.equal(view.label(), '思考', 'the next run starts counting from zero');
+
+  // Closing twice (a completion event after a stop) must not double-count.
+  view.close();
+  assert.equal(timers.cleared, timers.intervals);
+
+  // Duration formatting: sub-minute keeps one decimal, minutes are padded.
+  assert.equal(view.format(0), '0.0s');
+  assert.equal(view.format(1_000), '1.0s');
+  assert.equal(view.format(59_940), '59.9s');
+  assert.equal(view.format(60_000), '1m 00s');
+  assert.equal(view.format(65_400), '1m 05s');
+  assert.equal(view.format(3_600_000), '60m 00s');
+  // Garbage in must not render as NaN in the row.
+  assert.equal(view.format(Number.NaN), '0.0s');
+  assert.equal(view.format(-5), '0.0s');
+});
+
+test('a session re-render drops the thinking row state and its ticker', () => {
+  // renderActiveSession() rebuilds the conversation from persisted items, so the
+  // transient thinking row disappears with it. Leaving the interval armed would
+  // keep ticking against a detached node for the rest of the session.
+  assert.match(functionBody(source, 'renderActiveSession'), /finalizeReasoning\(\)/);
+  // Every run boundary that ends or restarts a run goes through the same reset.
+  for (const handler of ['assistantStreamStarted', 'assistantStreamCompleted', 'sessionError', 'runStopped']) {
+    assert.match(source, new RegExp(`message\\.type === '${handler}'[\\s\\S]{0,600}?finalizeReasoning\\(\\)`));
+  }
+  // Tool execution is not thinking: the tool step closes the segment.
+  assert.match(
+    source,
+    /message\.type === 'agentToolCall'\)[\s\S]{0,400}?closeReasoningSegment\(\)/
+  );
+  assert.match(
+    source,
+    /message\.type === 'assistantStreamDelta'\)[\s\S]{0,400}?closeReasoningSegment\(\)/
+  );
+});
