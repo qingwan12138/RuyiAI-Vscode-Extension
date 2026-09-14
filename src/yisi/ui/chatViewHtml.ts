@@ -1160,20 +1160,25 @@ ${permissionClientScript()}
     }
 
     function renderView() {
-      const showConversation = viewMode === 'conversation' && !!activeSession && activeSession.items.length > 0;
-      welcome.style.display = showConversation ? 'none' : '';
+      // #historyPanel, #welcome and #conversation are siblings that share one
+      // content area, so exactly one of them may be visible. The panel's own
+      // 'hidden' attribute is the single source of truth for that: a state
+      // refresh must never take the content area away from an open history panel.
+      // (Deleting or renaming a session used to close the panel exactly that way,
+      // because every refresh ran renderActiveSession -> showHistory(false).)
+      const historyOpen = !historyPanel.hidden;
+      const showConversation =
+        !historyOpen && viewMode === 'conversation' && !!activeSession && activeSession.items.length > 0;
+      welcome.style.display = historyOpen || showConversation ? 'none' : '';
       conversation.classList.toggle('visible', showConversation);
     }
 
+    // Closing the panel belongs to an explicit navigation intent (picking a
+    // session, starting a new one, going home, sending a message) — never to a
+    // state refresh, so deleting or renaming a session leaves it open.
     function showHistory(visible) {
       historyPanel.hidden = !visible;
-      if (visible) {
-        // History overlays the main content; keep the welcome/conversation hidden.
-        welcome.style.display = 'none';
-        conversation.classList.remove('visible');
-        renderHistory();
-        return;
-      }
+      if (visible) renderHistory();
       renderView();
     }
 
@@ -1209,6 +1214,9 @@ ${permissionClientScript()}
       select.append(title, meta);
       select.addEventListener('click', () => {
         viewMode = 'conversation';
+        // Picking a session is an explicit navigation intent: get the overlay out
+        // of the way. The refresh that follows must not be what closes it.
+        showHistory(false);
         vscode.postMessage({ type: 'switchSession', sessionId: summary.id });
         status.textContent = 'Switching session…';
       });
@@ -1410,7 +1418,9 @@ ${permissionClientScript()}
         }
       });
 
-      showHistory(false);
+      // A state refresh — including the one published after a delete or a rename —
+      // must not close an open history panel. renderView() leaves the content area
+      // with the panel whenever it is open.
       renderView();
       const content = document.getElementById('content');
       content.scrollTop = content.scrollHeight;
@@ -1422,8 +1432,13 @@ ${permissionClientScript()}
       renderMessageBody(node, text, role, streaming);
       if (!streaming && (role === 'assistant' || role === 'user')) attachCopy(node, text);
       conversation.appendChild(node);
-      welcome.style.display = 'none';
-      conversation.classList.add('visible');
+      // Never steal the content area from an open history panel (a run can keep
+      // streaming while the user reads history). The message is already in the
+      // DOM and renderView() reveals it as soon as the panel closes.
+      if (historyPanel.hidden) {
+        welcome.style.display = 'none';
+        conversation.classList.add('visible');
+      }
       const content = document.getElementById('content');
       content.scrollTop = content.scrollHeight;
       return node;
@@ -1749,6 +1764,9 @@ ${permissionClientScript()}
       if (!text) return;
 
       viewMode = 'conversation';
+      // Sending is a navigation intent too: the user wants to see the reply, not
+      // the history list, so close the overlay before the run starts streaming.
+      showHistory(false);
       appendMessage(text, 'user', false);
       vscode.postMessage({ type: 'sendMessage', text });
 
@@ -1773,6 +1791,8 @@ ${permissionClientScript()}
     sendButton.addEventListener('click', submit);
 
     document.getElementById('newChat').addEventListener('click', () => {
+      // Starting a new session is a navigation intent, so close the overlay here.
+      showHistory(false);
       vscode.postMessage({ type: 'newChat' });
     });
 
