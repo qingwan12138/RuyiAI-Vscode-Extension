@@ -283,7 +283,8 @@
     "check": "tsc -p ./ --noEmit",
     "test": "npm run compile && node --test test/*.test.js",
     "watch": "tsc -w -p ./",
-    "refresh:icons": "svgtofont -s media/iconfont -o media/iconfont -f yisi-icons"
+    "refresh:icons": "svgtofont -s media/iconfont -o media/iconfont -f yisi-icons",
+    "websearch:probe": "npm run compile && node scripts/probe-native-search.js"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

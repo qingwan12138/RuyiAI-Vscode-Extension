@@ -3,7 +3,7 @@
 - **交接文档最近更新**：2026-09-14（本仓当前 HEAD）
 - **项目**：Yisi AI — 面向 RuyiSDK / RISC-V 的 VS Code Coding Agent（闭源横向项目）
 - **当前分支**：`main`（与 `origin/main` 同步；`origin` = `https://github.com/qingwan12138/RuyiAI-Vscode-Extension.git`）
-- **验证状态**：`npm run compile` 通过；全量测试 **687 tests / 686 pass / 0 fail / 1 skip**（1 skip = Windows symlink 用例）
+- **验证状态**：`npm run compile` 通过；全量测试 **701 tests / 700 pass / 0 fail / 1 skip**（1 skip = Windows symlink 用例）
 - **构建产物**：`yisi-ai-dev-starter-0.1.7.vsix`（≈7.6 MB，含捆绑的运行时依赖）；`.vsix`/`dist`/`node_modules` 均被 gitignore，**不在版本库中**
 
 > **权威来源**（本文档只做索引与坑清单，不重复细节）：
@@ -90,6 +90,7 @@ infrastructure  ->  domain ports
 7. **并排 diff**（ADR-0010）：**是视图不是审批通道**（presenter 拿不到 `ApprovalBroker`）；**推演不可信就跳过**（不再唯一匹配/读不到/超 512KB），绝不显示不会真正发生的"未来"。
 8. **Plan 审阅**（ADR-0011）：计划渲染成**可编辑文档**，用户改动作为**反馈**回传（批准与拒绝都回）；反馈只回**被改动的行**；`confirm` 可返回 `boolean | {approved, feedback?}`。
 9. **Headless**（ADR-0012）：**默认只读（plan，无审批通道）**；`--allow-write` 显式 opt-in（转 `manual`）；**`destructive`/`credentialSensitive` 永远无通道**；密钥只从环境变量读；退出码 0/1/2。
+10. **联网搜索**（ADR-0013 / ADR-0014）：交付形态是**内置 MCP 服务器**（`mcp__websearch__web_search` / `web_fetch`），风险声明为 **`network`**，因此**逐次过 `PermissionEngine`**（Plan 拒绝 / 其余模式询问）。后端两种：用户自建 **SearXNG**，或**模型端点自带的服务端搜索**（零配置，一次搜索 = 一次模型调用）。**不变式**：服务端搜索**必须**走 `SearchBackend`（客户端工具），**禁止**做成"对话内的服务端工具"——那会绕过引擎，Plan 拦不住、卡片不出现。**禁止**为此换成 `AnthropicProvider`（`toolCalling: false`，会让 agent 失去全部工具）。
 
 ### 4.2 历史坑（仍然有效，别再踩）
 1. **PDF**：`pdfjs-dist@4.10.38`，安全下限 `>=4.2.67`（CVE-2024-4367），**不要回退 3.x**；4.x 为 ESM-only，必须真实动态 `import()` + 设 `workerSrc` + 预载 `globalThis.pdfjsWorker`；5.x/6.x 需 Node ≥22.13，宿主是 Node 20.18.1。守卫：`test/pdf-real-extractor.test.js`。

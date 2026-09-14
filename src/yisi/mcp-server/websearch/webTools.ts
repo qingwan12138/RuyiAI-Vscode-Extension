@@ -94,7 +94,7 @@ export function createWebTools(context: WebToolContext): WebTool[] {
         if (!context.search) {
           // Honest failure: a tool that silently returns nothing would look like
           // "the web has no answer" instead of "no backend is configured".
-          throw new Error('No search backend is configured, so web_search cannot run. Set YISI_SEARXNG_URL to a SearXNG base URL.');
+          throw new Error('No search backend is configured, so web_search cannot run. Set YISI_SEARXNG_URL to a SearXNG base URL, or provide a model key (DEEPSEEK_API_KEY) to use the provider\'s own server-side search.');
         }
         const requested = typeof input.maxResults === 'number' ? Math.trunc(input.maxResults) : DEFAULT_MAX_RESULTS;
         const maxResults = Math.max(1, Math.min(MAX_MAX_RESULTS, requested || DEFAULT_MAX_RESULTS));

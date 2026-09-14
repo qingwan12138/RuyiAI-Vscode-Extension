@@ -1,8 +1,13 @@
-import { WebTool, WebToolContext, createSearxngBackend, createWebTools } from './webTools';
+import { SearchBackend, WebTool, WebToolContext, createSearxngBackend, createWebTools } from './webTools';
 // The backend address has exactly one definition, shared with the setup command that
 // tells the user what to paste. Two copies of a default is how documentation and
 // behaviour drift apart.
 import { DEFAULT_SEARXNG_URL, WEB_SEARCH_BACKEND_ENV } from '../../application/mcp/webSearchSetup';
+import {
+  DEFAULT_NATIVE_SEARCH_MODEL,
+  DEFAULT_SEARCH_BASE_URL,
+  createNativeSearchBackend
+} from './nativeSearchBackend';
 
 /**
  * The bundled web-search MCP server.
@@ -122,13 +127,81 @@ export function createWebSearchServer(context: WebToolContext): WebSearchServer 
   }
 }
 
+export type SearchBackendKind = 'searxng' | 'native' | 'none';
+
+export interface SearchBackendChoice {
+  backend?: SearchBackend;
+  kind: SearchBackendKind;
+  /** A short, non-secret explanation for the log and for the user. Empty when obvious. */
+  note: string;
+}
+
+/**
+ * Chooses the search backend from the environment, in one place so the precedence is
+ * reviewable rather than scattered through `main`.
+ *
+ * Precedence is "explicit beats implicit":
+ *   1. `YISI_SEARCH_BACKEND` — a deliberate choice, including `none` to switch search off.
+ *   2. `YISI_SEARXNG_URL` — the user went to the trouble of naming a SearXNG instance.
+ *   3. a model key (`YISI_SEARCH_API_KEY` / `DEEPSEEK_API_KEY` / `ANTHROPIC_API_KEY`) —
+ *      zero setup: the key that already exists enables native server-side search.
+ *
+ * Backends live in the environment because an `yisiAI.mcpServers` entry cannot carry an
+ * `env` map (deliberately: that is where tokens would end up in `settings.json`).
+ */
+export function resolveSearchBackend(
+  env: Record<string, string | undefined>
+): SearchBackendChoice {
+  const explicit = env.YISI_SEARCH_BACKEND?.trim().toLowerCase();
+  const searxngUrl = env[WEB_SEARCH_BACKEND_ENV]?.trim();
+  const apiKey = env.YISI_SEARCH_API_KEY?.trim()
+    || env.DEEPSEEK_API_KEY?.trim()
+    || env.ANTHROPIC_API_KEY?.trim();
+  const baseUrl = env.YISI_SEARCH_BASE_URL?.trim() || DEFAULT_SEARCH_BASE_URL;
+  const model = env.YISI_SEARCH_MODEL?.trim() || DEFAULT_NATIVE_SEARCH_MODEL;
+
+  if (explicit === 'none') {
+    return { kind: 'none', note: 'Search is disabled by YISI_SEARCH_BACKEND=none; web_fetch still works.' };
+  }
+  if (explicit === 'searxng') {
+    return searxngUrl
+      ? { backend: createSearxngBackend(searxngUrl), kind: 'searxng', note: `Searching through SearXNG at ${searxngUrl}.` }
+      : { kind: 'none', note: 'YISI_SEARCH_BACKEND=searxng needs YISI_SEARXNG_URL, which is not set.' };
+  }
+  if (explicit === 'native') {
+    return apiKey
+      ? nativeChoice(baseUrl, apiKey, model)
+      : { kind: 'none', note: 'YISI_SEARCH_BACKEND=native needs an API key (YISI_SEARCH_API_KEY, DEEPSEEK_API_KEY or ANTHROPIC_API_KEY).' };
+  }
+  if (explicit && explicit !== 'auto') {
+    return { kind: 'none', note: `Unknown YISI_SEARCH_BACKEND "${explicit}"; use auto, searxng, native or none.` };
+  }
+
+  if (searxngUrl) {
+    return { backend: createSearxngBackend(searxngUrl), kind: 'searxng', note: `Searching through SearXNG at ${searxngUrl}.` };
+  }
+  if (apiKey) return nativeChoice(baseUrl, apiKey, model);
+  return {
+    kind: 'none',
+    note: 'No search backend is configured. Set YISI_SEARXNG_URL to a SearXNG instance, or provide a model key '
+      + '(DEEPSEEK_API_KEY) to use the provider\'s own server-side search. web_fetch works without either.'
+  };
+}
+
+function nativeChoice(baseUrl: string, apiKey: string, model: string): SearchBackendChoice {
+  return {
+    backend: createNativeSearchBackend({ baseUrl, apiKey, model }),
+    kind: 'native',
+    // Deliberately reports the endpoint and model but never the key.
+    note: `Search uses server-side web search at ${baseUrl} (model ${model}); each search costs one model turn.`
+  };
+}
+
 /** The stdio wrapper: one JSON object per line in, one out. */
 export async function main(): Promise<void> {
-  // A default, not a placeholder: "run SearXNG locally on its default port" makes the
-  // feature work with no configuration. Anything else is an explicit environment
-  // variable, because the MCP entry intentionally carries no secret/config map.
-  const base = process.env[WEB_SEARCH_BACKEND_ENV]?.trim() || DEFAULT_SEARXNG_URL;
-  const server = createWebSearchServer({ search: createSearxngBackend(base) });
+  const choice = resolveSearchBackend(process.env);
+  const server = createWebSearchServer(choice.backend ? { search: choice.backend } : {});
+  if (choice.note) process.stderr.write(`[yisi-websearch] ${choice.note}\n`);
 
   let buffer = '';
   process.stdin.setEncoding('utf8');
