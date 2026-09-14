@@ -176,8 +176,13 @@ test('the thinking row stays collapsed and previews the thinking live', () => {
   assert.match(source, /function startReasoningTicker\(\)/);
   assert.match(source, /clearInterval\(reasoningTimer\)/);
   assert.match(source, /message\.type === 'assistantReasoningDelta'\)[\s\S]{0,400}?openReasoningSegment\(\)/);
-  // The preview is the first non-empty line, whitespace-collapsed.
-  assert.match(source, /split\(\/\\r\?\\n\/\)\.find\(line => line\.trim\(\)\.length > 0\)/);
+  // The preview is the first non-empty line, whitespace-collapsed. The
+  // backslashes are doubled because the script sits inside an HTML template
+  // literal -- written singly they reach the browser as real line breaks and the
+  // client script stops parsing (the whole UI goes dead). What the browser
+  // actually receives is asserted by the render test in chat-view-source.
+  assert.match(source, /split\(\/\\\\r\?\\\\n\/\)\.find\(line => line\.trim\(\)\.length > 0\)/);
+  assert.match(source, /replace\(\/\\\\s\+\/g, ' '\)/);
   // One visual line: clipped with an ellipsis rather than wrapped.
   assert.match(source, /\.message\.reasoning > summary/);
   assert.match(source, /text-overflow: ellipsis/);

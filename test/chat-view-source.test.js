@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const Module = require('node:module');
+const { Script } = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'yisi', 'ui', 'chatViewHtml.ts'), 'utf8');
 const provider = fs.readFileSync(path.join(__dirname, '..', 'src', 'yisi', 'ui', 'chatViewProvider.ts'), 'utf8');
@@ -132,6 +134,14 @@ function functionBody(text, name) {
     }
   }
   throw new Error(`unbalanced braces while reading function ${name}`);
+}
+
+/** Same, de-escaped the way the surrounding HTML template literal de-escapes it.
+ *  The client script writes doubled backslashes so the browser receives single
+ *  ones; only doubled ones may appear there (enforced by the scan test below),
+ *  so this is an exact model of what the webview ends up running. */
+function clientFunctionBody(text, name) {
+  return functionBody(text, name).replace(/\\\\/g, '\\');
 }
 
 test('deleting or renaming a session leaves an open history panel open', () => {
@@ -291,15 +301,15 @@ test('the thinking row counts only the time actually spent thinking', () => {
     let reasoningElapsed = 0;
     let reasoningStartedAt = 0;
     let reasoningTimer;
-    ${functionBody(source, 'reasoningPreview')}
-    ${functionBody(source, 'currentReasoningMs')}
-    ${functionBody(source, 'formatDuration')}
-    ${functionBody(source, 'reasoningLabel')}
-    ${functionBody(source, 'updateReasoningNode')}
-    ${functionBody(source, 'startReasoningTicker')}
-    ${functionBody(source, 'openReasoningSegment')}
-    ${functionBody(source, 'closeReasoningSegment')}
-    ${functionBody(source, 'finalizeReasoning')}
+    ${clientFunctionBody(source, 'reasoningPreview')}
+    ${clientFunctionBody(source, 'currentReasoningMs')}
+    ${clientFunctionBody(source, 'formatDuration')}
+    ${clientFunctionBody(source, 'reasoningLabel')}
+    ${clientFunctionBody(source, 'updateReasoningNode')}
+    ${clientFunctionBody(source, 'startReasoningTicker')}
+    ${clientFunctionBody(source, 'openReasoningSegment')}
+    ${clientFunctionBody(source, 'closeReasoningSegment')}
+    ${clientFunctionBody(source, 'finalizeReasoning')}
     function row() {
       return { __header: { textContent: '' }, __body: { textContent: '' } };
     }
@@ -405,4 +415,92 @@ test('a session re-render drops the thinking row state and its ticker', () => {
     source,
     /message\.type === 'assistantStreamDelta'\)[\s\S]{0,400}?closeReasoningSegment\(\)/
   );
+});
+
+// ---------------------------------------------------------------------------
+// The client script is embedded in an HTML template literal, so TypeScript
+// consumes its backslashes before the browser ever sees them and `tsc` never
+// parses it as JavaScript. These tests render the real artifact and parse what
+// the webview actually receives.
+
+/** Render the real view HTML. The compiled module imports "vscode", which only
+ *  exists inside the extension host, so stub just the Uri surface it uses. */
+function renderChatViewHtml() {
+  const originalLoad = Module._load;
+  const uri = value => ({ path: String(value), fsPath: String(value), toString: () => String(value) });
+  Module._load = function patched(request, ...rest) {
+    if (request === 'vscode') {
+      return { Uri: { file: uri, joinPath: (base, ...parts) => uri([base, ...parts].join('/')) } };
+    }
+    return originalLoad.call(this, request, ...rest);
+  };
+  try {
+    const { createChatViewHtml } = require('../dist/yisi/ui/chatViewHtml');
+    return createChatViewHtml(
+      {
+        cspSource: 'vscode-webview://test',
+        asWebviewUri: value => ({ toString: () => 'vscode-webview://test/' + String(value) })
+      },
+      uri('/tmp/yisi-extension')
+    );
+  } finally {
+    Module._load = originalLoad;
+  }
+}
+
+function inlineScripts(html) {
+  const scripts = [];
+  const pattern = /<script\b[^>]*>([\s\S]*?)<\/script>/g;
+  let match;
+  while ((match = pattern.exec(html)) !== null) scripts.push(match[1]);
+  return scripts;
+}
+
+test('every script the webview receives parses as JavaScript', () => {
+  // Reported right after the thinking row shipped: "the UI is broken, clicking
+  // anything does nothing". A syntax error in an inline script means the page
+  // still renders but no listener is ever attached, so every click is dead.
+  // tsc cannot see this: the script is text inside a template literal.
+  const scripts = inlineScripts(renderChatViewHtml());
+  assert.equal(scripts.length, 3, 'the view injects three inline scripts');
+  scripts.forEach((body, index) => {
+    try {
+      new Script(body, { filename: `chatView-inline-${index + 1}.js` });
+    } catch (error) {
+      assert.fail(`inline script ${index + 1} does not parse (this kills the whole UI):\n${error.stack}`);
+    }
+  });
+  // The last one is the client script that wires the UI; make sure this test is
+  // looking at the script it thinks it is.
+  assert.match(scripts[2], /message\.type === 'assistantReasoningDelta'/);
+});
+
+test('backslashes in the embedded client script survive the template literal', () => {
+  // The silent half of the same trap: /\s+/ written singly arrives as /s+/,
+  // which still parses and quietly collapses the letter "s" instead of
+  // whitespace. So check what arrived, not how the source looks.
+  const scripts = inlineScripts(renderChatViewHtml());
+  const client = scripts[scripts.length - 1];
+  assert.match(client, /split\(\/\\r\?\\n\/\)/, 'the CRLF split must arrive with its backslashes');
+  assert.match(client, /replace\(\/\\s\+\/g, ' '\)/, 'the whitespace collapse must arrive intact');
+
+  // And the rule that keeps it true for the whole region: inside a template
+  // literal a single backslash can never reach the browser as written, so it
+  // must always be doubled -- in comments too, where a lone \r would otherwise
+  // inject a real line break into the emitted script.
+  const start = source.lastIndexOf('<script nonce="${nonce}">');
+  assert.notEqual(start, -1, 'the embedded client script was not found');
+  const end = source.indexOf('</script>', start);
+  assert.notEqual(end, -1, 'the embedded client script is not closed');
+  const region = source.slice(start, end);
+  const violations = [];
+  for (let index = 0; index < region.length; index += 1) {
+    if (region[index] !== '\\') continue;
+    if (region[index + 1] === '\\') {
+      index += 1;
+      continue;
+    }
+    violations.push(`line ${region.slice(0, index).split('\n').length}: \\${region[index + 1]}`);
+  }
+  assert.deepEqual(violations, [], 'every backslash in the embedded client script must be doubled');
 });

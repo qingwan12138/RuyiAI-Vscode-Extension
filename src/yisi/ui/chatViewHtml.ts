@@ -1835,9 +1835,16 @@ ${permissionClientScript()}
     // The thinking trace is one collapsed row whose label previews the thinking
     // as it arrives, the way the harness shows it: the reader always knows what
     // the model is chewing on, and the full text stays one click away.
+    //
+    // WARNING: this script is embedded in an HTML template literal, so every
+    // backslash here is an escape for TypeScript, not for the browser. Written
+    // singly, the CRLF pattern below becomes a real line break inside a regex
+    // literal and the client script stops parsing at all -- the webview then
+    // renders but nothing responds, because no click handler is ever attached.
+    // Double every backslash (\\r?\\n, \\s+), including inside comments.
     function reasoningPreview() {
-      const firstLine = streamedReasoning.split(/\r?\n/).find(line => line.trim().length > 0) ?? '';
-      const collapsed = firstLine.replace(/\s+/g, ' ').trim();
+      const firstLine = streamedReasoning.split(/\\r?\\n/).find(line => line.trim().length > 0) ?? '';
+      const collapsed = firstLine.replace(/\\s+/g, ' ').trim();
       return collapsed.length <= 200 ? collapsed : collapsed.slice(0, 199) + '…';
     }
     // Elapsed thinking time, shown on the row so a long think reads as "still

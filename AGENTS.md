@@ -125,3 +125,9 @@
 - **provider 不得把 `reasoning_content` 计入 `emitted`**：否则"只思考、没有 content 也没有工具调用"的一轮会被当成有效输出（这正是自动命名那次 bug 的同源防线）。
 - **工具步骤必须可折叠**（`<details>`，渐进式披露，docs/19）：`summary` 是单行标签（`🔧 名称 · ✓/✕`），展开体放入参与结果；事件同时带 `summary`(600) 与 `detail`(8000)，让"展开看细节"是可选操作而非默认铺满。
 - 守卫：`test/agent-trace.test.js`；计时逻辑另有假时钟驱动用例在 `test/chat-view-source.test.js`（证明跨工具调用的两段思考会累加、且工具耗时不计入）。详见 `docs/06`。
+
+## Webview embedded-script rule
+
+- `src/yisi/ui/chatViewHtml.ts` 的客户端脚本是**一个 HTML template literal 里的文本**：`tsc` 不把它当 JS 解析，TypeScript 会先吃掉里面的转义。**脚本和注释里的每个反斜杠都必须写成双反斜杠**：`/\r?\n/`、`/\s+/g` 要写成 `/\\r?\\n/`、`/\\s+/g`。
+- 写成单个的后果有两档：`\r`/`\n` 变成**真实换行**，把正则字面量劈成两行 -> **整个客户端脚本语法错误 -> 页面照常渲染但所有点击无响应**（实际发生过，用户报"点什么都没反应"）；`\s` 则**静默**变成 `s`，正则还在但语义错了。注释同理：`//` 注释里一个 `\r` 会注入换行，把它后面的文字变成代码。
+- **只匹配源码文本的断言抓不到这个坑**：两种写法在源码里都能被写出来。真正的守卫是 `test/chat-view-source.test.js`——它 stub 掉 `vscode`、渲染**真实 HTML**，用 `vm.Script` 解析每一段 inline script，断言反斜杠"活着到达"浏览器，并扫描该区域禁止单反斜杠。**改 webview 脚本后必须跑它**，不能只看 `npm run check` 通过。
