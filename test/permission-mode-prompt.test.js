@@ -9,6 +9,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { permissionModeSystemMessage } = require('../dist/yisi/application/agent/permissionModePrompt');
+const { agentSystemPromptMessage } = require('../dist/yisi/application/agent/agentSystemPrompt');
 const { AgentToolLoop } = require('../dist/yisi/application/agent/readOnlyAgentLoop');
 const { ToolRegistry } = require('../dist/yisi/application/agent/toolRegistry');
 const { PermissionEngine } = require('../dist/yisi/permissions/permissionEngine');
@@ -129,17 +130,31 @@ test('every permission mode reaches the model as its own briefing', async () => 
     assert.equal(requests.length, 2, `${mode}: the loop continued after the read`);
     for (const request of requests) {
       const systems = request.messages.filter(message => message.role === 'system');
-      assert.equal(systems.length, 1, `${mode}: exactly one briefing, not one per round`);
-      assert.equal(request.messages[0].role, 'system', `${mode}: the briefing leads the conversation`);
+      // Two system messages by design: the stable role/tool-use policy at the
+      // head, and the mode briefing immediately before the current user turn.
+      assert.equal(systems.length, 2, `${mode}: the role prompt plus the mode briefing`);
       assert.equal(
-        systems[0].content,
+        request.messages[0].content,
+        agentSystemPromptMessage(),
+        `${mode}: the stable role prompt leads the conversation`
+      );
+      const briefingIndex = request.messages.findIndex(
+        message => message.role === 'system' && message.content !== agentSystemPromptMessage()
+      );
+      assert.equal(
+        request.messages[briefingIndex].content,
         permissionModeSystemMessage(mode),
         `${mode}: the model must receive that mode's briefing`
       );
+      assert.equal(
+        request.messages[briefingIndex + 1].content,
+        'hi',
+        `${mode}: the briefing sits after the history and immediately before the user turn`
+      );
     }
-    // The caller's own messages are preserved verbatim after the briefing.
-    assert.deepEqual(requests[0].messages[1], { role: 'user', content: 'hi' });
-    delivered.set(mode, requests[0].messages[0].content);
+    // The caller's own messages are preserved verbatim, after both system parts.
+    assert.deepEqual(requests[0].messages.at(-1), { role: 'user', content: 'hi' });
+    delivered.set(mode, permissionModeSystemMessage(mode));
   }
 
   assert.equal(
@@ -147,4 +162,18 @@ test('every permission mode reaches the model as its own briefing', async () => 
     MODES.length,
     'a loop that ignored the mode would deliver the same briefing to every mode'
   );
+});
+
+test('the agent path carries a role and tool-use policy at the head', () => {
+  const prompt = agentSystemPromptMessage();
+  // The reported transcript: "请你介绍一下RISC-V吧" produced a ruyi_check call and
+  // a list_directory call, because nothing told the model that a general question
+  // needs no tools while ~24 tool definitions sat in front of it.
+  assert.match(prompt, /answered from what you already know/i);
+  assert.match(prompt, /Use tools when the task depends on facts about this workspace/i);
+  assert.match(prompt, /smallest set of tools/i);
+  assert.match(prompt, /Answer in the language the user wrote in/i);
+  // Mode restrictions belong to the mode briefing, not here: this part must stay
+  // stable so it can sit in a cached prefix.
+  assert.equal(/permission mode|BLOCKED|approval/i.test(prompt), false);
 });

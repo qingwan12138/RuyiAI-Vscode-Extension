@@ -10,6 +10,7 @@ import {
 import { PermissionEngine } from '../../permissions/permissionEngine';
 import { isWiderPermissionMode } from '../../domain/permissionMode';
 import { permissionModeSystemMessage } from './permissionModePrompt';
+import { agentSystemPromptMessage } from './agentSystemPrompt';
 import { parsePermissionEscalation } from './requestPermissionTool';
 import { ToolRegistry } from './toolRegistry';
 
@@ -108,18 +109,18 @@ export class AgentToolLoop {
     signal: AbortSignal,
     onToolEvent?: (event: AgentToolEvent) => void
   ): Promise<AgentLoopResult> {
-    // The briefing goes after the retained history, immediately before the current
-    // user turn, rather than at the head: the history then stays a byte-identical
-    // prefix and a mode change only rewrites the tail. It stays a `system` message
-    // so the model cannot mistake it for user input — note the Anthropic
-    // transport hoists system messages into its top-level `system` field, so there
-    // a mode change still alters the cached prefix.
+    // The head message is the agent's role and tool-use policy: stable, so a
+    // provider's prompt cache can reuse it. The mode-specific briefing is appended
+    // after the retained history instead (below), so a mode change only rewrites
+    // the tail. Note the Anthropic transport hoists system messages into its
+    // top-level `system` field, so there both still form the cached prefix.
     const messages = structuredClone(request.messages);
     const lastIsUser = messages.length > 0 && messages[messages.length - 1].role === 'user';
     messages.splice(lastIsUser ? messages.length - 1 : messages.length, 0, {
       role: 'system',
       content: permissionModeSystemMessage(mode)
     });
+    messages.unshift({ role: 'system', content: agentSystemPromptMessage() });
     const executions: AgentToolExecutionEvidence[] = [];
     let previousSignature: string | undefined;
     // Denials are tool outcomes, not run failures (docs/04: every reference agent

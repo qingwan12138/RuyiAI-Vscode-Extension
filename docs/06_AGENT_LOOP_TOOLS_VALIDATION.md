@@ -30,6 +30,19 @@ User Turn
 - permission blocked / missing user input
 达到 guard 时给出阻塞原因和已完成工作，不伪装成功。
 
+## Agent 请求的 system prompt 组成
+
+每次 Agent 运行的消息数组由 `AgentToolLoop.run()` 组装，**两段 system 内容，位置不同**：
+
+| 位置 | 内容 | 是否随模式变化 | 构建者 |
+|---|---|---|---|
+| **头部**（`messages[0]`） | **角色 + 工具使用纪律**：通识问题直接用自身知识回答、只在需要**本工作区事实**时才调工具、用最小工具集、不投机性探索、用用户的语言回答 | 否（稳定，可进缓存前缀） | `application/agent/agentSystemPrompt.ts` |
+| **历史之后、当前用户轮之前** | **权限模式简报**：当前模式允许什么、被拒之后怎么办、`request_permission` 的约束 | 是 | `application/agent/permissionModePrompt.ts` |
+
+**为什么必须两段都在**：agent 路径原先**没有任何 system prompt**（只有对话 + ~24 个工具定义 + `tool_choice: 'auto'`）。结果是问"请你介绍一下RISC-V吧"这种通识问题时，模型匹配到工具描述里的 "RISC-V" 字样，去调了 `ruyi_check` 和 `list_directory`——它不是在"思考要查环境"，而是**没有任何东西告诉它通识问题不需要工具**。修权限那次只补了模式简报，角色/纪律这段是后来补的。
+
+**不要**把模式限制写进角色提示（那会让头部随模式变化、破坏缓存前缀，也是两种关注点的混淆）；**不要**把角色/纪律写进模式简报（会被当成随模式变化的东西重复发送）。守卫：`test/permission-mode-prompt.test.js` 断言头部恒为角色提示、简报紧随用户轮之前、二者内容互不越界。
+
 ## Core Tools（建议阶段）
 ReadFile, ListDirectory, SearchText, SearchFiles, GetSymbols, ReadDiagnostics, ApplyPatch/EditFile/CreateFile/DeleteFile, RunCommand, StartProcess/StopProcess, GitStatus/GitDiff, Ruyi* tools。
 
