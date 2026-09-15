@@ -12,6 +12,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { tempDirSync } = require('./support/tempDir');
 
 const { StdioMcpTransport } = require('../dist/yisi/infrastructure/mcp/stdioMcpTransport');
 const { McpClient } = require('../dist/yisi/application/mcp/mcpClient');
@@ -79,7 +80,7 @@ test('closing the transport disconnects the client', async () => {
 });
 
 test('closing reaps the child process instead of leaking an orphan', async () => {
-  const marker = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'yisi-mcp-')), 'pid');
+  const marker = path.join(tempDirSync('yisi-mcp-'), 'pid');
   const transport = startTransport({ env: { ...process.env, MCP_FIXTURE_MARKER: marker } });
   const client = new McpClient(transport, { requestTimeoutMs: 5_000 });
   await client.connect();

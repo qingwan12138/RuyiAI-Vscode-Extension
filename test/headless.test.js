@@ -13,6 +13,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { tempDirSync } = require('./support/tempDir');
 
 const {
   HEADLESS_ALLOWABLE_RISKS,
@@ -95,7 +96,7 @@ test('--allow-write is the opt-in, and an unknown mode is refused', () => {
 // --- end to end, without VS Code -------------------------------------------
 
 function scratch(files = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yisi-headless-'));
+  const root = tempDirSync('yisi-headless-');
   for (const [name, content] of Object.entries(files)) {
     fs.writeFileSync(path.join(root, name), content, 'utf8');
   }

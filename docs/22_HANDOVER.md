@@ -3,7 +3,7 @@
 - **交接文档最近更新**：2026-09-14（本仓当前 HEAD）
 - **项目**：Yisi AI — 面向 RuyiSDK / RISC-V 的 VS Code Coding Agent（闭源横向项目）
 - **当前分支**：`main`（与 `origin/main` 同步；`origin` = `https://github.com/qingwan12138/RuyiAI-Vscode-Extension.git`）
-- **验证状态**：`npm run compile` 通过；全量测试 **701 tests / 700 pass / 0 fail / 1 skip**（1 skip = Windows symlink 用例）
+- **验证状态**：`npm run compile` 通过；全量测试 **704 tests / 703 pass / 0 fail / 1 skip**（1 skip = Windows symlink 用例）
 - **构建产物**：`yisi-ai-dev-starter-0.1.7.vsix`（≈7.6 MB，含捆绑的运行时依赖）；`.vsix`/`dist`/`node_modules` 均被 gitignore，**不在版本库中**
 
 > **权威来源**（本文档只做索引与坑清单，不重复细节）：
@@ -149,7 +149,7 @@ node --test test/headless.test.js                      # CI：默认只读、opt
 
 **未跟踪文件**：无。此前记录的 `random.js` / `gen_random_numbers.js` 已不在工作区（`Test-Path` 两条均为 false）；`dist/`（构建产物，`npm run compile` 可再生）与 `node_modules/`（依赖）按设计不入库。
 
-**已知的本地残留（不在版本库，但会留在机器上）**：`test/headless.test.js` 与 `test/mcp-stdio-transport.test.js` 用 `mkdtempSync` 建临时目录后**没有清理**，每跑一次全量测试都会在系统临时目录里留下 `yisi-headless-*` / `yisi-mcp-*`。截至 2026-09-14 已累积 327 个（119 个非空）。这是测试卫生缺陷，与提交内容无关。
+**已知的本地残留**：**已修**。`test/headless.test.js` 与 `test/mcp-stdio-transport.test.js` 曾用 `mkdtempSync` 建系统临时目录后**不清理**，到 2026-09-14 已累积 327 个（119 个非空）—— 泄漏不会让任何断言失败，所以一直没人发现。现在新增 `test/support/tempDir.js`（创建即注册，**进程退出时同步清理**，测试抛错也照样清），两处改用该助手；守卫 `test/temp-dir-hygiene.test.js` 两条断言防复发：源码扫描（建临时目录的文件必须引用清理）+ **真实子进程退出后目录必须消失**（源码扫描证明不了"rm 真的被执行"）。实测：全量跑一遍新增临时目录 **0** 个（327 → 327）。
 
 ---
 
