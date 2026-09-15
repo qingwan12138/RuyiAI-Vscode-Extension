@@ -147,7 +147,9 @@ node --test test/headless.test.js                      # CI：默认只读、opt
 | diff 内**编辑提案**后再批准 | 要求编辑路径在**应用时**读取提案内容，会动到 stale guard 边界 | 独立设计 |
 | Ruyi 面板的变更操作按钮 | 属可选增强 | 需求确认 |
 
-**未跟踪文件**：`random.js`、`gen_random_numbers.js`（不在版本库，打包已排除）。
+**未跟踪文件**：无。此前记录的 `random.js` / `gen_random_numbers.js` 已不在工作区（`Test-Path` 两条均为 false）；`dist/`（构建产物，`npm run compile` 可再生）与 `node_modules/`（依赖）按设计不入库。
+
+**已知的本地残留（不在版本库，但会留在机器上）**：`test/headless.test.js` 与 `test/mcp-stdio-transport.test.js` 用 `mkdtempSync` 建临时目录后**没有清理**，每跑一次全量测试都会在系统临时目录里留下 `yisi-headless-*` / `yisi-mcp-*`。截至 2026-09-14 已累积 327 个（119 个非空）。这是测试卫生缺陷，与提交内容无关。
 
 ---
 
